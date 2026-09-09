@@ -35,4 +35,11 @@ Export-ModuleMember -Function @(
     'orgReportWrite'
     'dfoReportWrite'
     'threatHuntReportWrite'
+    'runInitialize'
+    'msGraphConnect'
+    'msExchangeOnlineConnect'
+    'msDisconnect'
+    'exportVerify'
+    'manifestWrite'
+    'logWrite'
 )

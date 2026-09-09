@@ -80,6 +80,15 @@ Param(
 
 $ErrorActionPreference = 'Stop'
 
+# Files copied from a network location or downloaded carry Mark-of-the-Web, which
+# silently blocks module import and would otherwise need each file unblocked by hand
+# through a security prompt. Unblock-File only exists on Windows, so this is a no-op
+# elsewhere, and never stops the run if it can't clear a file (e.g. ACL restrictions).
+if (Get-Command Unblock-File -ErrorAction SilentlyContinue) {
+    Get-ChildItem -Path $PSScriptRoot -Recurse -File -ErrorAction SilentlyContinue |
+        Unblock-File -ErrorAction SilentlyContinue
+}
+
 $manifestPath = Join-Path $PSScriptRoot 'OAG-ModuleManifest.psd1'
 if (-not (Test-Path $manifestPath)) {
     throw "Cannot find OAG-ModuleManifest.psd1 in $PSScriptRoot. Run this from the module folder."

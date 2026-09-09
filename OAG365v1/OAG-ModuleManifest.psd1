@@ -29,6 +29,13 @@
         'orgReportWrite'
         'dfoReportWrite'
         'threatHuntReportWrite'
+        'runInitialize'
+        'msGraphConnect'
+        'msExchangeOnlineConnect'
+        'msDisconnect'
+        'exportVerify'
+        'manifestWrite'
+        'logWrite'
     )
 
     CmdletsToExport   = @()
