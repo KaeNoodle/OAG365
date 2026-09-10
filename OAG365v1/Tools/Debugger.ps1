@@ -1,11 +1,18 @@
 <#
 .SYNOPSIS
-Diagnoses why PowerShell is running in Constrained Language Mode.
+Diagnoses why the OAG365 module won't run: Constrained Language Mode, execution policy,
+or a missing PowerShell version or module.
 
 .DESCRIPTION
-Constrained Language Mode (CLM) is imposed by application control, not by PowerShell itself.
-Several different mechanisms can cause it and the remedy is different for each, so the first
-job is identifying which one is active.
+Three unrelated things can each stop this module dead, and the fix for each is different, so
+the first job is identifying which one (or ones) is active:
+
+  - Constrained Language Mode (CLM), imposed by application control, not by PowerShell itself.
+    Several different mechanisms can cause it - see the numbered CAUSE sections below.
+  - Execution policy. This module is signed via a file catalog rather than per-file
+    Authenticode, which an AllSigned or Restricted policy will refuse to run outright.
+  - PowerShell 7 or a required module not installed. Checks presence only, not a specific
+    pinned version - the manifest's own RequiredModules only enforces a minimum.
 
 This script is deliberately written to run WITHIN Constrained Language Mode. It uses only
 cmdlets, hashtables, arrays and [PSCustomObject], and avoids generic collections, New-Object,
@@ -13,13 +20,13 @@ cmdlets, hashtables, arrays and [PSCustomObject], and avoids generic collections
 that failure is itself diagnostic and worth reporting.
 
 .EXAMPLE
-.\Test-LanguageMode.ps1
+.\Debugger.ps1
 
 .EXAMPLE
-.\Test-LanguageMode.ps1 -ModulePath C:\Tools\OAG-M365-AuditingScript
+.\Debugger.ps1 -ModulePath C:\Tools\OAG-M365-AuditingScript
 
 .NOTES
-VERSION: 1.0
+VERSION: 2.0
 Run on the machine and in the shell where the export fails.
 #>
 [CmdletBinding()]
@@ -216,9 +223,22 @@ Write-Host ""
 # 6. Execution policy and script trust
 # ---------------------------------------------------------------------------------------
 Write-Host "EXECUTION POLICY" -ForegroundColor Cyan
+$executionPolicyBlocking = $false
 if (Get-Command -Name Get-ExecutionPolicy -ErrorAction SilentlyContinue) {
     Get-ExecutionPolicy -List | ForEach-Object {
         Write-Host ("  {0,-16}: {1}" -f $_.Scope, $_.ExecutionPolicy)
+    }
+
+    $effective = Get-ExecutionPolicy
+    $executionPolicyBlocking = $effective -in @('AllSigned', 'Restricted')
+    Write-Host ("  {0,-16}: {1}" -f 'Effective', $effective) -ForegroundColor $(if ($executionPolicyBlocking) { 'Red' } else { 'Green' })
+
+    if ($executionPolicyBlocking) {
+        Write-Host ""
+        Write-Host "  BLOCKING. This module is signed via a file catalog, not per-file" -ForegroundColor DarkYellow
+        Write-Host "  Authenticode (see Documentation\Verification.md), so $effective refuses" -ForegroundColor DarkYellow
+        Write-Host "  to run it at all." -ForegroundColor DarkYellow
+        Write-Host "    Fix: Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned" -ForegroundColor Gray
     }
 } else {
     Write-Host "  Get-ExecutionPolicy unavailable (non-Windows)" -ForegroundColor Gray
@@ -246,7 +266,7 @@ if (Test-Path $ModulePath) {
     }
 
     # Signature state of the entry point / catalog
-    foreach ($target in @('OAG-MainRunFile.ps1', 'OAG-FileCatalog.cat')) {
+    foreach ($target in @('runMe.ps1', 'OAG-FileCatalog.cat')) {
         $full = Join-Path -Path $ModulePath -ChildPath $target
         if (Test-Path $full) {
             $sig = $null
@@ -270,7 +290,58 @@ if (Test-Path $ModulePath) {
 Write-Host ""
 
 # ---------------------------------------------------------------------------------------
-# 8. What actually breaks
+# 8. Required PowerShell version and modules
+#    Checks presence only - not a specific pinned version. Every module here is the union
+#    of what the five reports' -Modules lists in runMe.ps1 need; keep this list in sync if
+#    that ever changes.
+# ---------------------------------------------------------------------------------------
+Write-Host "REQUIRED MODULES" -ForegroundColor Cyan
+
+$requiredModulesMissing = $false
+
+$psMajor = $PSVersionTable.PSVersion.Major
+Write-Host "  PowerShell : $($PSVersionTable.PSVersion)" -ForegroundColor $(if ($psMajor -ge 7) { 'Green' } else { 'Red' })
+if ($psMajor -lt 7) {
+    $requiredModulesMissing = $true
+    Write-Host "    MISSING. This module requires PowerShell 7." -ForegroundColor DarkYellow
+    Write-Host "    Fix: winget install --id Microsoft.PowerShell --source winget --installer-type wix" -ForegroundColor Gray
+}
+Write-Host ""
+
+$requiredModuleNames = @(
+    'Microsoft.Graph.Users'
+    'Microsoft.Graph.Authentication'
+    'Microsoft.Graph.Applications'
+    'Microsoft.Graph.DirectoryObjects'
+    'Microsoft.Graph.Groups'
+    'Microsoft.Graph.Identity.SignIns'
+    'Microsoft.Graph.Identity.Governance'
+    'Microsoft.Graph.Identity.DirectoryManagement'
+    'Microsoft.Graph.Reports'
+    'ExchangeOnlineManagement'
+)
+
+$missingModules = @()
+foreach ($moduleName in $requiredModuleNames) {
+    $installed = Get-Module -ListAvailable -Name $moduleName -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($installed) {
+        Write-Host "  $moduleName : $($installed.Version)" -ForegroundColor Green
+    } else {
+        Write-Host "  $moduleName : NOT INSTALLED" -ForegroundColor Red
+        $missingModules += $moduleName
+    }
+}
+
+if ($missingModules.Count -gt 0) {
+    $requiredModulesMissing = $true
+    Write-Host ""
+    Write-Host "  MISSING $($missingModules.Count) module(s)." -ForegroundColor DarkYellow
+    Write-Host "    Fix: Install-Module -Name $($missingModules -join ', ')" -ForegroundColor Gray
+}
+Write-Host ""
+
+# ---------------------------------------------------------------------------------------
+# 9. What actually breaks
 # ---------------------------------------------------------------------------------------
 Write-Host "CAPABILITY TEST" -ForegroundColor Cyan
 Write-Host "  Checking the specific operations the export module depends on."
@@ -326,9 +397,7 @@ Write-Host "====================================================================
 Write-Host "SUMMARY" -ForegroundColor Cyan
 Write-Host ""
 
-if ($mode -eq 'FullLanguage') {
-    Write-Host "  Session is in FullLanguage. The module should run." -ForegroundColor Green
-} else {
+if ($mode -ne 'FullLanguage') {
     Write-Host "  Session is in $mode with $blockedCount blocked capability/ies." -ForegroundColor Red
     Write-Host ""
     Write-Host "  The module cannot be made to work in this state. It is not a matter of" -ForegroundColor DarkYellow
@@ -337,5 +406,14 @@ if ($mode -eq 'FullLanguage') {
     Write-Host ""
     Write-Host "  Take the cause identified above to whoever administers application" -ForegroundColor DarkYellow
     Write-Host "  control and request an approved execution path. See Docs\README.md." -ForegroundColor DarkYellow
+} elseif ($executionPolicyBlocking) {
+    Write-Host "  Session is in FullLanguage, but the execution policy above will still" -ForegroundColor Red
+    Write-Host "  refuse to run this module. See the fix under EXECUTION POLICY." -ForegroundColor Red
+} elseif ($requiredModulesMissing) {
+    Write-Host "  Session is in FullLanguage and execution policy is fine, but PowerShell" -ForegroundColor DarkYellow
+    Write-Host "  itself or a required module is missing. See the fix(es) under REQUIRED MODULES." -ForegroundColor DarkYellow
+} else {
+    Write-Host "  Session is in FullLanguage, execution policy allows it, and every" -ForegroundColor Green
+    Write-Host "  required module is installed. The module should run." -ForegroundColor Green
 }
 Write-Host ""

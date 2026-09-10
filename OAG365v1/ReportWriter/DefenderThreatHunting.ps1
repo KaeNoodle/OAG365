@@ -17,7 +17,7 @@ function threatHuntReportWrite {
     None.
 
     RUNNING CONTEXT
-    Called by  : OAG-MainRunFile.ps1 -report TH, or run directly
+    Called by  : runMe.ps1 -report TH, or run directly
     Calls      : runEnsure, reportPathInitialize, threatHuntQueryGet, threatHuntQueryRun,
                  logWrite, exceptionFormat
 

@@ -25,7 +25,7 @@ function exportVerify {
     None. Reads $script:run.
 
     RUNNING CONTEXT
-    Called by  : OAG-MainRunFile.ps1 in its finally block
+    Called by  : runMe.ps1 in its finally block
     Calls      : logWrite
     Returns    : summary object used by the run summary and by Verify-Export.ps1
 

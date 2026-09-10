@@ -1,5 +1,39 @@
 # Changelog
 
+## 4.1.0 — Renamed entry point, interactive menu, broader Debugger
+
+### Entry point
+
+- `OAG-MainRunFile.ps1` renamed to `runMe.ps1`. Every reference across the manifest,
+  `codeVerify.ps1`'s fallback signature check, `Tools\Build-Module.ps1`, doc-comments and
+  `Documentation\README.md` updated to match.
+- Added a looping interactive menu (Reports / Tools / Help / Exit) for when the operator
+  runs `runMe.ps1` with no `-report` parameter. Scripted and unattended invocations
+  (`-report ...`, `-nonInteractive`, the app-auth parameter sets) are unaffected — the menu
+  only appears when `-report` was not explicitly passed and `-nonInteractive` is not set.
+- Within one interactive session, picking further reports after the first reuses the
+  existing Microsoft Graph / Exchange Online connection instead of reconnecting, and all
+  reports picked in the session land in the same run folder and manifest. The first Graph
+  connection of an interactive session requests the scopes for every Graph report up
+  front, so a later pick is never left under-scoped.
+- The Reports menu asks "Get full report" (all 5) or "Get partial report" (choose which)
+  rather than listing every report and an "All" option side by side.
+- The Tools menu exposes the renamed Debugger and `Verify-Export.ps1` (the latter
+  defaulting to the most recent completed run) — not the release-engineering scripts
+  (`Build-Module.ps1`, `New-OagCatalog.ps1`), which stay out of the operator-facing menu.
+  Help now points to the Debugger when the module won't run at all.
+
+### Diagnostics
+
+- `Tools\Test-LanguageMode.ps1` renamed to `Tools\Debugger.ps1`. All existing Constrained
+  Language Mode checks are unchanged.
+- Added an execution-policy check that flags `AllSigned`/`Restricted` specifically, since
+  this module is signed via a file catalog rather than per-file Authenticode and those
+  policies refuse to run it outright.
+- Added a required-PowerShell-version and required-modules check covering PowerShell 7
+  and every module the five reports depend on, printing the install command for anything
+  missing. Checks presence only, not a specific pinned version.
+
 ## 4.0.0 — Restructure from five scripts into one module
 
 ### Structure

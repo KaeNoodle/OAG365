@@ -27,7 +27,7 @@ function msExchangeOnlineConnect {
     -noPause (optional) skip the confirmation pause, for unattended runs
 
     RUNNING CONTEXT
-    Called by  : OAG-MainRunFile.ps1, dfoReportWrite
+    Called by  : runMe.ps1, dfoReportWrite
     Calls      : logWrite, exceptionFormat
     Returns    : object with connected, userPrincipalName, organization, moduleVersion
 

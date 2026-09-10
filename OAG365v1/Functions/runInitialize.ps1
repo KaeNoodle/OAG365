@@ -29,7 +29,7 @@ function runInitialize {
     -moduleRoot (optional) module path, used for the code integrity check
 
     RUNNING CONTEXT
-    Called by  : OAG-MainRunFile.ps1, or by a report writer if run on its own
+    Called by  : runMe.ps1, or by a report writer if run on its own
     Calls      : logWrite, codeVerify
     Sets       : $script:run
 

@@ -20,7 +20,7 @@ function capReportWrite {
     None. Reads $script:run and $script:exportTarget.
 
     RUNNING CONTEXT
-    Called by  : OAG-MainRunFile.ps1 -report CAP, or run directly
+    Called by  : runMe.ps1 -report CAP, or run directly
     Calls      : runEnsure, reportPathInitialize, capPolicyExport, capAuthMethodExport,
                  capAuthStrengthExport, exportRegister, logWrite, exceptionFormat
 

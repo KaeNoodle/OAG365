@@ -27,7 +27,7 @@ function manifestWrite {
     None. Reads $script:run.
 
     RUNNING CONTEXT
-    Called by  : OAG-MainRunFile.ps1, after the transcript is closed
+    Called by  : runMe.ps1, after the transcript is closed
     Calls      : logWrite, exceptionFormat
     Verified by: Tools\Verify-Export.ps1
 

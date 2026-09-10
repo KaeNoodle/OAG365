@@ -1,6 +1,6 @@
 @{
     RootModule        = 'OAG-FileInfo.psm1'
-    ModuleVersion     = '4.0.0'
+    ModuleVersion     = '4.1.0'
     GUID              = 'e7c4a1b9-3d5f-4a82-9c16-7b0e2f8d4a63'
     Author            = 'Office of the Auditor General (Western Australia)'
     CompanyName       = 'Office of the Auditor General (Western Australia)'
@@ -47,7 +47,7 @@
     # See Tools\New-OagCatalog.ps1 and Documentation\Verification.md.
     # ----------------------------------------------------------------------------------
     FileList = @(
-        'OAG-MainRunFile.ps1'
+        'runMe.ps1'
         'OAG-ModuleManifest.psd1'
         'OAG-FileInfo.psm1'
         'ReportWriter'

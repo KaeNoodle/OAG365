@@ -31,7 +31,7 @@ function msGraphConnect {
     -noPause (optional) skip the confirmation pause, for unattended runs
 
     RUNNING CONTEXT
-    Called by  : OAG-MainRunFile.ps1
+    Called by  : runMe.ps1
     Calls      : logWrite, exceptionFormat
     Returns    : object with connected, tenantId, account, scopesGranted, scopesMissing
 
