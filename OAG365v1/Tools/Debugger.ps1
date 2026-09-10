@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
 Diagnoses why the OAG365 module won't run: Constrained Language Mode, execution policy,
-or an incompatible ExchangeOnlineManagement version.
+or a missing PowerShell version or module.
 
 .DESCRIPTION
 Three unrelated things can each stop this module dead, and the fix for each is different, so
@@ -11,8 +11,8 @@ the first job is identifying which one (or ones) is active:
     Several different mechanisms can cause it - see the numbered CAUSE sections below.
   - Execution policy. This module is signed via a file catalog rather than per-file
     Authenticode, which an AllSigned or Restricted policy will refuse to run outright.
-  - ExchangeOnlineManagement version. The manifest only pins a minimum version, so a newer
-    one (3.10.1 is a known offender) can still load and break the DFO report at runtime.
+  - PowerShell 7 or a required module not installed. Checks presence only, not a specific
+    pinned version - the manifest's own RequiredModules only enforces a minimum.
 
 This script is deliberately written to run WITHIN Constrained Language Mode. It uses only
 cmdlets, hashtables, arrays and [PSCustomObject], and avoids generic collections, New-Object,
@@ -290,60 +290,53 @@ if (Test-Path $ModulePath) {
 Write-Host ""
 
 # ---------------------------------------------------------------------------------------
-# 8. ExchangeOnlineManagement version
-#    The manifest's RequiredModules only enforces a MINIMUM version, so a newer version
-#    can still load. 3.10.1 is known to break Get-ConnectionContext with "Object reference
-#    not set to an instance of an object", which breaks the DFO report.
-#    Uses Import-PowerShellDataFile (a real cmdlet, not Invoke-Expression) and plain
-#    integer-array version comparison rather than [version], to stay CLM-safe.
+# 8. Required PowerShell version and modules
+#    Checks presence only - not a specific pinned version. Every module here is the union
+#    of what the five reports' -Modules lists in runMe.ps1 need; keep this list in sync if
+#    that ever changes.
 # ---------------------------------------------------------------------------------------
-Write-Host "EXCHANGEONLINEMANAGEMENT VERSION" -ForegroundColor Cyan
+Write-Host "REQUIRED MODULES" -ForegroundColor Cyan
 
-$exoVersionMismatch = $false
-$pinnedVersion = $null
-$manifestPathForExo = Join-Path -Path $ModulePath -ChildPath 'OAG-ModuleManifest.psd1'
-if ((Get-Command -Name Import-PowerShellDataFile -ErrorAction SilentlyContinue) -and (Test-Path $manifestPathForExo)) {
-    try {
-        $manifestData = Import-PowerShellDataFile -Path $manifestPathForExo -ErrorAction Stop
-        $pinnedVersion = ($manifestData.RequiredModules | Where-Object { $_.ModuleName -eq 'ExchangeOnlineManagement' }).ModuleVersion
-    } catch {
-        Write-Host "  Could not read pinned version: $($_.Exception.Message)" -ForegroundColor Gray
+$requiredModulesMissing = $false
+
+$psMajor = $PSVersionTable.PSVersion.Major
+Write-Host "  PowerShell : $($PSVersionTable.PSVersion)" -ForegroundColor $(if ($psMajor -ge 7) { 'Green' } else { 'Red' })
+if ($psMajor -lt 7) {
+    $requiredModulesMissing = $true
+    Write-Host "    MISSING. This module requires PowerShell 7." -ForegroundColor DarkYellow
+    Write-Host "    Fix: winget install --id Microsoft.PowerShell --source winget --installer-type wix" -ForegroundColor Gray
+}
+Write-Host ""
+
+$requiredModuleNames = @(
+    'Microsoft.Graph.Users'
+    'Microsoft.Graph.Authentication'
+    'Microsoft.Graph.Applications'
+    'Microsoft.Graph.DirectoryObjects'
+    'Microsoft.Graph.Groups'
+    'Microsoft.Graph.Identity.SignIns'
+    'Microsoft.Graph.Identity.Governance'
+    'Microsoft.Graph.Identity.DirectoryManagement'
+    'Microsoft.Graph.Reports'
+    'ExchangeOnlineManagement'
+)
+
+$missingModules = @()
+foreach ($moduleName in $requiredModuleNames) {
+    $installed = Get-Module -ListAvailable -Name $moduleName -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($installed) {
+        Write-Host "  $moduleName : $($installed.Version)" -ForegroundColor Green
+    } else {
+        Write-Host "  $moduleName : NOT INSTALLED" -ForegroundColor Red
+        $missingModules += $moduleName
     }
 }
-Write-Host "  Manifest requires (minimum) : $(if ($pinnedVersion) { $pinnedVersion } else { 'unknown' })" -ForegroundColor Gray
 
-$installedExo = @(Get-Module -ListAvailable -Name ExchangeOnlineManagement -ErrorAction SilentlyContinue | Sort-Object Version -Descending)
-if ($installedExo.Count -eq 0) {
-    Write-Host "  ExchangeOnlineManagement is not installed." -ForegroundColor Red
-} else {
-    $installedExo | ForEach-Object { Write-Host "  Installed  : $($_.Version)" -ForegroundColor Gray }
-    $highest = $installedExo[0].Version
-    Write-Host "  Would load : $highest (Import-Module loads the highest installed version unless -RequiredVersion is pinned)" -ForegroundColor Gray
-
-    if ($pinnedVersion) {
-        # Compare as integer-array, not [version], to avoid depending on an unconfirmed
-        # Constrained Language Mode type allow-list entry.
-        $highestParts = @(($highest.ToString() -split '\.') | ForEach-Object { [int]$_ })
-        $pinnedParts  = @(($pinnedVersion.ToString() -split '\.') | ForEach-Object { [int]$_ })
-        $partCount = if ($highestParts.Count -gt $pinnedParts.Count) { $highestParts.Count } else { $pinnedParts.Count }
-        $isNewer = $false
-        for ($i = 0; $i -lt $partCount; $i++) {
-            $h = if ($i -lt $highestParts.Count) { $highestParts[$i] } else { 0 }
-            $p = if ($i -lt $pinnedParts.Count)  { $pinnedParts[$i]  } else { 0 }
-            if ($h -ne $p) { $isNewer = $h -gt $p; break }
-        }
-
-        $exoVersionMismatch = $isNewer
-        if ($isNewer) {
-            Write-Host ""
-            Write-Host "  MISMATCH. $highest is newer than the pinned $pinnedVersion (the manifest" -ForegroundColor Red
-            Write-Host "  only enforces a minimum). 3.10.1 is known to break Get-ConnectionContext" -ForegroundColor DarkYellow
-            Write-Host "  with 'Object reference not set to an instance of an object', breaking DFO." -ForegroundColor DarkYellow
-            Write-Host "    Fix: Install-Module ExchangeOnlineManagement -RequiredVersion 3.9.0 -Force -AllowClobber" -ForegroundColor Gray
-        } else {
-            Write-Host "  OK" -ForegroundColor Green
-        }
-    }
+if ($missingModules.Count -gt 0) {
+    $requiredModulesMissing = $true
+    Write-Host ""
+    Write-Host "  MISSING $($missingModules.Count) module(s)." -ForegroundColor DarkYellow
+    Write-Host "    Fix: Install-Module -Name $($missingModules -join ', ')" -ForegroundColor Gray
 }
 Write-Host ""
 
@@ -416,12 +409,11 @@ if ($mode -ne 'FullLanguage') {
 } elseif ($executionPolicyBlocking) {
     Write-Host "  Session is in FullLanguage, but the execution policy above will still" -ForegroundColor Red
     Write-Host "  refuse to run this module. See the fix under EXECUTION POLICY." -ForegroundColor Red
-} elseif ($exoVersionMismatch) {
-    Write-Host "  Session is in FullLanguage and execution policy is fine, but the" -ForegroundColor DarkYellow
-    Write-Host "  installed ExchangeOnlineManagement version will break the DFO report." -ForegroundColor DarkYellow
-    Write-Host "  See the fix under EXCHANGEONLINEMANAGEMENT VERSION." -ForegroundColor DarkYellow
+} elseif ($requiredModulesMissing) {
+    Write-Host "  Session is in FullLanguage and execution policy is fine, but PowerShell" -ForegroundColor DarkYellow
+    Write-Host "  itself or a required module is missing. See the fix(es) under REQUIRED MODULES." -ForegroundColor DarkYellow
 } else {
-    Write-Host "  Session is in FullLanguage, execution policy allows it, and the" -ForegroundColor Green
-    Write-Host "  ExchangeOnlineManagement version is fine. The module should run." -ForegroundColor Green
+    Write-Host "  Session is in FullLanguage, execution policy allows it, and every" -ForegroundColor Green
+    Write-Host "  required module is installed. The module should run." -ForegroundColor Green
 }
 Write-Host ""

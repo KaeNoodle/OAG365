@@ -229,11 +229,24 @@ function showMainMenu {
 
 function showReportsMenu {
     Write-Host ""
-    Write-Host "Run which report(s)?" -ForegroundColor Cyan
+    Write-Host "Reports" -ForegroundColor Cyan
+    Write-Host " 1) Get full report - runs all 5 reports"
+    Write-Host " 2) Get partial report - choose which"
+    Write-Host " 0) Back"
+
+    switch (Read-Host "Choose an option") {
+        '1' { return $allReports }
+        '2' { return showPartialReportsMenu }
+        default { return @() }
+    }
+}
+
+function showPartialReportsMenu {
+    Write-Host ""
+    Write-Host "Which report(s)?" -ForegroundColor Cyan
     for ($i = 0; $i -lt $allReports.Count; $i++) {
         Write-Host " $($i + 1)) $($allReports[$i])"
     }
-    Write-Host " $($allReports.Count + 1)) All"
     Write-Host " 0) Back"
 
     $choice = Read-Host "Choose one or more (comma-separated), or 0 to go back"
@@ -242,7 +255,6 @@ function showReportsMenu {
     $picked = @()
     foreach ($token in ($choice -split ',')) {
         $token = $token.Trim()
-        if ($token -eq "$($allReports.Count + 1)") { return $allReports }
         $index = 0
         if ([int]::TryParse($token, [ref]$index) -and $index -ge 1 -and $index -le $allReports.Count) {
             $picked += $allReports[$index - 1]
@@ -254,12 +266,13 @@ function showReportsMenu {
 function showToolsMenu {
     Write-Host ""
     Write-Host "Tools" -ForegroundColor Cyan
-    Write-Host " 1) Verify-Export - check a completed run's evidence integrity"
-    Write-Host " 2) Debugger      - diagnose signing, execution policy and module issues"
+    Write-Host " 1) Debugger      - diagnose signing, execution policy and module issues"
+    Write-Host " 2) Verify-Export - check a completed run's evidence integrity"
     Write-Host " 0) Back"
 
     switch (Read-Host "Choose an option") {
-        '1' {
+        '1' { & (Join-Path $PSScriptRoot 'Tools\Debugger.ps1') -ModulePath $PSScriptRoot }
+        '2' {
             $m365Root = Join-Path $output 'M365'
             $default = $null
             if (Test-Path $m365Root) {
@@ -276,7 +289,6 @@ function showToolsMenu {
                 Write-Host "No completed run found to verify, and no folder given." -ForegroundColor Yellow
             }
         }
-        '2' { & (Join-Path $PSScriptRoot 'Tools\Debugger.ps1') -ModulePath $PSScriptRoot }
     }
 }
 
@@ -294,6 +306,9 @@ function showHelpScreen {
     Write-Host "parameters (-appClientId/-appTenantId with -appCertThumbprint or -appSecret)." -ForegroundColor Gray
     Write-Host ""
     Write-Host "Evidence for this session is written under: $(Join-Path $output 'M365')" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "If the module won't run at all, use Tools > Debugger - it checks Constrained" -ForegroundColor Gray
+    Write-Host "Language Mode, execution policy, and required PowerShell/module versions." -ForegroundColor Gray
     Write-Host "See Documentation\README.md for full details." -ForegroundColor Gray
 }
 

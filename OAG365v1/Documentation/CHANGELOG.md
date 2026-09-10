@@ -16,9 +16,12 @@
   reports picked in the session land in the same run folder and manifest. The first Graph
   connection of an interactive session requests the scopes for every Graph report up
   front, so a later pick is never left under-scoped.
-- The Tools menu exposes `Verify-Export.ps1` (defaulting to the most recent completed run)
-  and the renamed Debugger — not the release-engineering scripts (`Build-Module.ps1`,
-  `New-OagCatalog.ps1`), which stay out of the operator-facing menu.
+- The Reports menu asks "Get full report" (all 5) or "Get partial report" (choose which)
+  rather than listing every report and an "All" option side by side.
+- The Tools menu exposes the renamed Debugger and `Verify-Export.ps1` (the latter
+  defaulting to the most recent completed run) — not the release-engineering scripts
+  (`Build-Module.ps1`, `New-OagCatalog.ps1`), which stay out of the operator-facing menu.
+  Help now points to the Debugger when the module won't run at all.
 
 ### Diagnostics
 
@@ -27,10 +30,9 @@
 - Added an execution-policy check that flags `AllSigned`/`Restricted` specifically, since
   this module is signed via a file catalog rather than per-file Authenticode and those
   policies refuse to run it outright.
-- Added an ExchangeOnlineManagement version check: the manifest's `RequiredModules` only
-  pins a minimum version, so a newer installed version (3.10.1 is a known offender, breaking
-  `Get-ConnectionContext` and the DFO report) can still load silently. The check compares
-  the highest installed version against the pinned minimum and flags a mismatch.
+- Added a required-PowerShell-version and required-modules check covering PowerShell 7
+  and every module the five reports depend on, printing the install command for anything
+  missing. Checks presence only, not a specific pinned version.
 
 ## 4.0.0 — Restructure from five scripts into one module
 
