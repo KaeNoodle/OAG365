@@ -1,11 +1,18 @@
 <#
 .SYNOPSIS
-Diagnoses why PowerShell is running in Constrained Language Mode.
+Diagnoses why the OAG365 module won't run: Constrained Language Mode, execution policy,
+or an incompatible ExchangeOnlineManagement version.
 
 .DESCRIPTION
-Constrained Language Mode (CLM) is imposed by application control, not by PowerShell itself.
-Several different mechanisms can cause it and the remedy is different for each, so the first
-job is identifying which one is active.
+Three unrelated things can each stop this module dead, and the fix for each is different, so
+the first job is identifying which one (or ones) is active:
+
+  - Constrained Language Mode (CLM), imposed by application control, not by PowerShell itself.
+    Several different mechanisms can cause it - see the numbered CAUSE sections below.
+  - Execution policy. This module is signed via a file catalog rather than per-file
+    Authenticode, which an AllSigned or Restricted policy will refuse to run outright.
+  - ExchangeOnlineManagement version. The manifest only pins a minimum version, so a newer
+    one (3.10.1 is a known offender) can still load and break the DFO report at runtime.
 
 This script is deliberately written to run WITHIN Constrained Language Mode. It uses only
 cmdlets, hashtables, arrays and [PSCustomObject], and avoids generic collections, New-Object,
@@ -13,13 +20,13 @@ cmdlets, hashtables, arrays and [PSCustomObject], and avoids generic collections
 that failure is itself diagnostic and worth reporting.
 
 .EXAMPLE
-.\Test-LanguageMode.ps1
+.\Debugger.ps1
 
 .EXAMPLE
-.\Test-LanguageMode.ps1 -ModulePath C:\Tools\OAG-M365-AuditingScript
+.\Debugger.ps1 -ModulePath C:\Tools\OAG-M365-AuditingScript
 
 .NOTES
-VERSION: 1.0
+VERSION: 2.0
 Run on the machine and in the shell where the export fails.
 #>
 [CmdletBinding()]
@@ -216,9 +223,22 @@ Write-Host ""
 # 6. Execution policy and script trust
 # ---------------------------------------------------------------------------------------
 Write-Host "EXECUTION POLICY" -ForegroundColor Cyan
+$executionPolicyBlocking = $false
 if (Get-Command -Name Get-ExecutionPolicy -ErrorAction SilentlyContinue) {
     Get-ExecutionPolicy -List | ForEach-Object {
         Write-Host ("  {0,-16}: {1}" -f $_.Scope, $_.ExecutionPolicy)
+    }
+
+    $effective = Get-ExecutionPolicy
+    $executionPolicyBlocking = $effective -in @('AllSigned', 'Restricted')
+    Write-Host ("  {0,-16}: {1}" -f 'Effective', $effective) -ForegroundColor $(if ($executionPolicyBlocking) { 'Red' } else { 'Green' })
+
+    if ($executionPolicyBlocking) {
+        Write-Host ""
+        Write-Host "  BLOCKING. This module is signed via a file catalog, not per-file" -ForegroundColor DarkYellow
+        Write-Host "  Authenticode (see Documentation\Verification.md), so $effective refuses" -ForegroundColor DarkYellow
+        Write-Host "  to run it at all." -ForegroundColor DarkYellow
+        Write-Host "    Fix: Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned" -ForegroundColor Gray
     }
 } else {
     Write-Host "  Get-ExecutionPolicy unavailable (non-Windows)" -ForegroundColor Gray
@@ -246,7 +266,7 @@ if (Test-Path $ModulePath) {
     }
 
     # Signature state of the entry point / catalog
-    foreach ($target in @('OAG-MainRunFile.ps1', 'OAG-FileCatalog.cat')) {
+    foreach ($target in @('runMe.ps1', 'OAG-FileCatalog.cat')) {
         $full = Join-Path -Path $ModulePath -ChildPath $target
         if (Test-Path $full) {
             $sig = $null
@@ -270,7 +290,65 @@ if (Test-Path $ModulePath) {
 Write-Host ""
 
 # ---------------------------------------------------------------------------------------
-# 8. What actually breaks
+# 8. ExchangeOnlineManagement version
+#    The manifest's RequiredModules only enforces a MINIMUM version, so a newer version
+#    can still load. 3.10.1 is known to break Get-ConnectionContext with "Object reference
+#    not set to an instance of an object", which breaks the DFO report.
+#    Uses Import-PowerShellDataFile (a real cmdlet, not Invoke-Expression) and plain
+#    integer-array version comparison rather than [version], to stay CLM-safe.
+# ---------------------------------------------------------------------------------------
+Write-Host "EXCHANGEONLINEMANAGEMENT VERSION" -ForegroundColor Cyan
+
+$exoVersionMismatch = $false
+$pinnedVersion = $null
+$manifestPathForExo = Join-Path -Path $ModulePath -ChildPath 'OAG-ModuleManifest.psd1'
+if ((Get-Command -Name Import-PowerShellDataFile -ErrorAction SilentlyContinue) -and (Test-Path $manifestPathForExo)) {
+    try {
+        $manifestData = Import-PowerShellDataFile -Path $manifestPathForExo -ErrorAction Stop
+        $pinnedVersion = ($manifestData.RequiredModules | Where-Object { $_.ModuleName -eq 'ExchangeOnlineManagement' }).ModuleVersion
+    } catch {
+        Write-Host "  Could not read pinned version: $($_.Exception.Message)" -ForegroundColor Gray
+    }
+}
+Write-Host "  Manifest requires (minimum) : $(if ($pinnedVersion) { $pinnedVersion } else { 'unknown' })" -ForegroundColor Gray
+
+$installedExo = @(Get-Module -ListAvailable -Name ExchangeOnlineManagement -ErrorAction SilentlyContinue | Sort-Object Version -Descending)
+if ($installedExo.Count -eq 0) {
+    Write-Host "  ExchangeOnlineManagement is not installed." -ForegroundColor Red
+} else {
+    $installedExo | ForEach-Object { Write-Host "  Installed  : $($_.Version)" -ForegroundColor Gray }
+    $highest = $installedExo[0].Version
+    Write-Host "  Would load : $highest (Import-Module loads the highest installed version unless -RequiredVersion is pinned)" -ForegroundColor Gray
+
+    if ($pinnedVersion) {
+        # Compare as integer-array, not [version], to avoid depending on an unconfirmed
+        # Constrained Language Mode type allow-list entry.
+        $highestParts = @(($highest.ToString() -split '\.') | ForEach-Object { [int]$_ })
+        $pinnedParts  = @(($pinnedVersion.ToString() -split '\.') | ForEach-Object { [int]$_ })
+        $partCount = if ($highestParts.Count -gt $pinnedParts.Count) { $highestParts.Count } else { $pinnedParts.Count }
+        $isNewer = $false
+        for ($i = 0; $i -lt $partCount; $i++) {
+            $h = if ($i -lt $highestParts.Count) { $highestParts[$i] } else { 0 }
+            $p = if ($i -lt $pinnedParts.Count)  { $pinnedParts[$i]  } else { 0 }
+            if ($h -ne $p) { $isNewer = $h -gt $p; break }
+        }
+
+        $exoVersionMismatch = $isNewer
+        if ($isNewer) {
+            Write-Host ""
+            Write-Host "  MISMATCH. $highest is newer than the pinned $pinnedVersion (the manifest" -ForegroundColor Red
+            Write-Host "  only enforces a minimum). 3.10.1 is known to break Get-ConnectionContext" -ForegroundColor DarkYellow
+            Write-Host "  with 'Object reference not set to an instance of an object', breaking DFO." -ForegroundColor DarkYellow
+            Write-Host "    Fix: Install-Module ExchangeOnlineManagement -RequiredVersion 3.9.0 -Force -AllowClobber" -ForegroundColor Gray
+        } else {
+            Write-Host "  OK" -ForegroundColor Green
+        }
+    }
+}
+Write-Host ""
+
+# ---------------------------------------------------------------------------------------
+# 9. What actually breaks
 # ---------------------------------------------------------------------------------------
 Write-Host "CAPABILITY TEST" -ForegroundColor Cyan
 Write-Host "  Checking the specific operations the export module depends on."
@@ -326,9 +404,7 @@ Write-Host "====================================================================
 Write-Host "SUMMARY" -ForegroundColor Cyan
 Write-Host ""
 
-if ($mode -eq 'FullLanguage') {
-    Write-Host "  Session is in FullLanguage. The module should run." -ForegroundColor Green
-} else {
+if ($mode -ne 'FullLanguage') {
     Write-Host "  Session is in $mode with $blockedCount blocked capability/ies." -ForegroundColor Red
     Write-Host ""
     Write-Host "  The module cannot be made to work in this state. It is not a matter of" -ForegroundColor DarkYellow
@@ -337,5 +413,15 @@ if ($mode -eq 'FullLanguage') {
     Write-Host ""
     Write-Host "  Take the cause identified above to whoever administers application" -ForegroundColor DarkYellow
     Write-Host "  control and request an approved execution path. See Docs\README.md." -ForegroundColor DarkYellow
+} elseif ($executionPolicyBlocking) {
+    Write-Host "  Session is in FullLanguage, but the execution policy above will still" -ForegroundColor Red
+    Write-Host "  refuse to run this module. See the fix under EXECUTION POLICY." -ForegroundColor Red
+} elseif ($exoVersionMismatch) {
+    Write-Host "  Session is in FullLanguage and execution policy is fine, but the" -ForegroundColor DarkYellow
+    Write-Host "  installed ExchangeOnlineManagement version will break the DFO report." -ForegroundColor DarkYellow
+    Write-Host "  See the fix under EXCHANGEONLINEMANAGEMENT VERSION." -ForegroundColor DarkYellow
+} else {
+    Write-Host "  Session is in FullLanguage, execution policy allows it, and the" -ForegroundColor Green
+    Write-Host "  ExchangeOnlineManagement version is fine. The module should run." -ForegroundColor Green
 }
 Write-Host ""

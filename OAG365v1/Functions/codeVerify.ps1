@@ -87,7 +87,7 @@ function codeVerify {
 
     try {
         if (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue) {
-            $target = if (Test-Path $catalogPath) { $catalogPath } else { Join-Path $moduleRoot 'OAG-MainRunFile.ps1' }
+            $target = if (Test-Path $catalogPath) { $catalogPath } else { Join-Path $moduleRoot 'runMe.ps1' }
             if (Test-Path $target) {
                 $sig = Get-AuthenticodeSignature -FilePath $target -ErrorAction Stop
                 $result.signatureStatus = $sig.Status.ToString()

@@ -9,7 +9,7 @@ The problem
 -----------
 Under WDAC, AppLocker or Airlock, PowerShell evaluates trust for EVERY file it loads, and the
 language mode is bound to each scriptblock when that file is parsed. Trust is not inherited from
-the caller. A signed and trusted OAG-MainRunFile.ps1 that dot-sources 62 unsigned files does not make
+the caller. A signed and trusted runMe.ps1 that dot-sources 62 unsigned files does not make
 those files trusted; each is evaluated on its own and parsed in ConstrainedLanguage.
 
 It then fails harder than you would expect. PowerShell refuses to dot-source a command defined
@@ -33,14 +33,14 @@ to sign:
 
     OAG-ModuleManifest.psd1      manifest
     OAG-M365-AuditingScript.psm1      all 62 functions merged
-    OAG-MainRunFile.ps1         entry point
+    runMe.ps1                   entry point
 
 Three signing operations instead of 68, no cross-file dot-sourcing at runtime, and the source
 tree stays readable and reviewable. This is a common pattern for production PowerShell modules and
 it happens to solve the application control problem cleanly.
 
 Docs\ and Tools\ are copied across but not merged. Tools scripts are run directly by an operator,
-so they need their own signatures if they are to run under enforcement - Test-LanguageMode.ps1 is
+so they need their own signatures if they are to run under enforcement - Debugger.ps1 is
 written to work in ConstrainedLanguage precisely because it may have to.
 
 .PARAMETER SourceRoot
@@ -162,7 +162,7 @@ Write-Host "  Merged .psm1 : $psm1Lines lines" -ForegroundColor Green
 # Copy the manifest and entry point, and the folders that are not merged
 # ------------------------------------------------------------------------------------------
 Copy-Item -Path (Join-Path $SourceRoot 'OAG-ModuleManifest.psd1') -Destination $buildPath -Force
-Copy-Item -Path (Join-Path $SourceRoot 'OAG-MainRunFile.ps1')    -Destination $buildPath -Force
+Copy-Item -Path (Join-Path $SourceRoot 'runMe.ps1')               -Destination $buildPath -Force
 
 foreach ($folder in @('Docs', 'Tools')) {
     $src = Join-Path $SourceRoot $folder
@@ -185,7 +185,7 @@ $newFileList = @"
     FileList = @(
         'OAG-ModuleManifest.psd1'
         'OAG-M365-AuditingScript.psm1'
-        'OAG-MainRunFile.ps1'
+        'runMe.ps1'
     )
 "@
 

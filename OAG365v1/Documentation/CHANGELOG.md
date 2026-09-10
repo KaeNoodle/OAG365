@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.1.0 — Renamed entry point, interactive menu, broader Debugger
+
+### Entry point
+
+- `OAG-MainRunFile.ps1` renamed to `runMe.ps1`. Every reference across the manifest,
+  `codeVerify.ps1`'s fallback signature check, `Tools\Build-Module.ps1`, doc-comments and
+  `Documentation\README.md` updated to match.
+- Added a looping interactive menu (Reports / Tools / Help / Exit) for when the operator
+  runs `runMe.ps1` with no `-report` parameter. Scripted and unattended invocations
+  (`-report ...`, `-nonInteractive`, the app-auth parameter sets) are unaffected — the menu
+  only appears when `-report` was not explicitly passed and `-nonInteractive` is not set.
+- Within one interactive session, picking further reports after the first reuses the
+  existing Microsoft Graph / Exchange Online connection instead of reconnecting, and all
+  reports picked in the session land in the same run folder and manifest. The first Graph
+  connection of an interactive session requests the scopes for every Graph report up
+  front, so a later pick is never left under-scoped.
+- The Tools menu exposes `Verify-Export.ps1` (defaulting to the most recent completed run)
+  and the renamed Debugger — not the release-engineering scripts (`Build-Module.ps1`,
+  `New-OagCatalog.ps1`), which stay out of the operator-facing menu.
+
+### Diagnostics
+
+- `Tools\Test-LanguageMode.ps1` renamed to `Tools\Debugger.ps1`. All existing Constrained
+  Language Mode checks are unchanged.
+- Added an execution-policy check that flags `AllSigned`/`Restricted` specifically, since
+  this module is signed via a file catalog rather than per-file Authenticode and those
+  policies refuse to run it outright.
+- Added an ExchangeOnlineManagement version check: the manifest's `RequiredModules` only
+  pins a minimum version, so a newer installed version (3.10.1 is a known offender, breaking
+  `Get-ConnectionContext` and the DFO report) can still load silently. The check compares
+  the highest installed version against the pinned minimum and flags a mismatch.
+
 ## 4.0.0 — Restructure from five scripts into one module
 
 ### Structure

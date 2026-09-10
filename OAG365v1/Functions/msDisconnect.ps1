@@ -15,7 +15,7 @@ function msDisconnect {
     -service (optional, one of: Graph, ExchangeOnline, All) defaults to All
 
     RUNNING CONTEXT
-    Called by  : OAG-MainRunFile.ps1 in its finally block
+    Called by  : runMe.ps1 in its finally block
     Calls      : logWrite
 
     CMLETS/PERMISSIONS/SCOPES
