@@ -45,6 +45,13 @@ function iamReportWrite {
     $folder = reportPathInitialize -report 'IAM'
     $started = Get-Date
 
+    # Reset fresh each run. iamPimPolicySet assigns into these by key
+    # ($cache[$id] = $value), which throws "Cannot index into a null array"
+    # if the variable was never a hashtable to begin with.
+    $script:pimMgmtPolicyRolesCache = @{}
+    $script:pimMgmtPolicyGroupsCache = @{}
+    $script:pimMgmtPolicyRules = @()
+
     try {
         logWrite "STAGE 1 of 3: users, devices and service principals"
         iamUserExport | Out-Null

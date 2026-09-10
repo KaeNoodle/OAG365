@@ -39,7 +39,7 @@ function orgEmailExport {
         $getSpfDnsRecordCount = $getSpfDnsRecord.count
         Write-Verbose " - SPF records for $getSpfDnsRecordCount M365 domains"
 
-        ($getMxDnsRecord + $getSpfDnsRecord) | Select-Object -Property * | Export-CSV $script:exportTarget.domainSpf -NoTypeInformation
+        (@($getMxDnsRecord) + @($getSpfDnsRecord)) | Select-Object -Property * | Export-CSV $script:exportTarget.domainSpf -NoTypeInformation
         Write-Host " - Exported SPF records for M365 domains to CSV $($script:exportTarget.domainSpf)" -ForegroundColor Green
 
         # Get DKIM DNS Record for each M365 domain
@@ -48,7 +48,7 @@ function orgEmailExport {
         $getDkimSigningRecordCount = $getDkimSigningRecord.count
         Write-Verbose " - Found DKIM config for $getDkimSigningRecordCount domains"
 
-        ($getMxDnsRecord + $getDkimSigningRecord) | Select-Object -Property * | Export-CSV $script:exportTarget.domainDkim -NoTypeInformation
+        (@($getMxDnsRecord) + @($getDkimSigningRecord)) | Select-Object -Property * | Export-CSV $script:exportTarget.domainDkim -NoTypeInformation
         Write-Host " - Exported M365 DKIM records for M365 domains to CSV $($script:exportTarget.domainDkim)" -ForegroundColor Green
 
         # Get DMARC DNS Record for each M365 domain
@@ -57,7 +57,7 @@ function orgEmailExport {
         $getDmarcDnsRecordCount = $getDmarcDnsRecord.count
         Write-Verbose " - DMARC records for $getDmarcDnsRecordCount M365 domains"
 
-        ($getMxDnsRecord + $getDmarcDnsRecord) | Select-Object -Property * | Export-CSV $script:exportTarget.domainDmarc -NoTypeInformation
+        (@($getMxDnsRecord) + @($getDmarcDnsRecord)) | Select-Object -Property * | Export-CSV $script:exportTarget.domainDmarc -NoTypeInformation
         Write-Host " - Exported DMARC records for M365 domains to CSV $($script:exportTarget.domainDmarc)" -ForegroundColor Green
 
         return $true
