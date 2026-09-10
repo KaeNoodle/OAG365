@@ -10,7 +10,7 @@ function runInitialize {
     them. One execution now produces one folder.
 
     LOGIC
-    Resolves the output path and builds M365\<runId>\00_RunLog beneath it.
+    Resolves the output path and builds results\<runId>\00_RunLog beneath it.
     Stores run state in $script:run so no function needs a context parameter.
     Starts the transcript inside the run folder rather than beside it.
     Records the environment: PowerShell version, language mode, module versions.
@@ -52,7 +52,7 @@ function runInitialize {
     $outputRoot = (Resolve-Path -Path $output).Path
 
     $runId   = (Get-Date).ToString('yyyyMMdd_HHmmss')
-    $runRoot = Join-Path (Join-Path $outputRoot 'M365') $runId
+    $runRoot = Join-Path (Join-Path $outputRoot 'results') $runId
     $logPath = Join-Path $runRoot '00_RunLog'
 
     New-Item -ItemType Directory -Force -Path $logPath -ErrorAction Stop | Out-Null

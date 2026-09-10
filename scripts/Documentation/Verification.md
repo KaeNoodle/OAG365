@@ -128,7 +128,7 @@ failures train reviewers to ignore the check, which defeats its purpose entirely
 ### Verifying as a reviewer
 
 ```powershell
-.\Tools\Verify-Export.ps1 -runFolder C:\Audit\M365\20260823_142530
+.\Tools\Verify-Export.ps1 -runFolder C:\Audit\results\20260823_142530
 ```
 
 Four outcomes are distinguished, because they mean different things:

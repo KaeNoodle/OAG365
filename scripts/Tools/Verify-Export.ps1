@@ -30,10 +30,10 @@ later accidental or casual alteration, not against the operator. Closing that re
 manifest to be signed, or committed promptly to a records system the operator cannot amend.
 
 .PARAMETER RunFolder
-Path to the run folder, e.g. C:\Audit\M365\20260823_142530
+Path to the run folder, e.g. C:\Audit\results\20260823_142530
 
 .EXAMPLE
-.\Verify-Export.ps1 -runFolder C:\Audit\M365\20260823_142530
+.\Verify-Export.ps1 -runFolder C:\Audit\results\20260823_142530
 
 .NOTES
 VERSION: 1.0

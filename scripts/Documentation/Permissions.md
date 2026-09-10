@@ -162,7 +162,7 @@ need doing before the audit, not during it.
 Before relying on any export, check the granted scopes:
 
 ```powershell
-Import-Csv .\M365\<RunId>\00_RunLog\scopes-granted.csv | Where-Object Granted -eq 'False'
+Import-Csv .\results\<RunId>\00_RunLog\scopes-granted.csv | Where-Object Granted -eq 'False'
 ```
 
 Any row returned means an export ran without a permission it needed. Cross-reference against

@@ -11,8 +11,10 @@ function runEnsure {
 
     LOGIC
     Returns immediately if $script:run already exists.
-    Otherwise calls runInitialize against the module folder and says so, so the
-      operator can see a run was created rather than joined.
+    Otherwise calls runInitialize with the module folder as moduleRoot (for the code
+      integrity check) but the folder next to it as the output root, so a solo report run
+      writes its evidence beside the module rather than inside it - the same reasoning
+      runMe.ps1 applies to its own default -output.
 
     PARAMETERS
     -report (optional) name recorded as the reason the run was created
@@ -34,7 +36,8 @@ function runEnsure {
 
     if ($null -ne $script:run) { return }
 
-    $root = Split-Path -Path $PSScriptRoot -Parent
-    runInitialize -output $root -reports @($report) -moduleRoot $root | Out-Null
+    $moduleRoot = Split-Path -Path $PSScriptRoot -Parent
+    $outputRoot = Split-Path -Path $moduleRoot -Parent
+    runInitialize -output $outputRoot -reports @($report) -moduleRoot $moduleRoot | Out-Null
     logWrite "No run was active, so one was started for this report." -level Detail -indent 1
 }

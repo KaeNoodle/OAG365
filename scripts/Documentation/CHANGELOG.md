@@ -2,6 +2,19 @@
 
 ## 4.1.0 — Renamed entry point, interactive menu, broader Debugger
 
+### Repository layout
+
+- Top-level module folder renamed from `OAG365v1` to `scripts`.
+- `-output` now defaults to the folder next to `scripts\` (a `results\` folder at the
+  repository root) instead of inside it, and the run-output subfolder itself is renamed
+  from `M365\<runId>\` to `results\<runId>\`. Same reasoning for the solo-report path in
+  `runEnsure.ps1`, which now passes a separate `moduleRoot`/`outputRoot`.
+  This is deliberate: `Tools\New-OagCatalog.ps1` hashes everything under its target folder
+  when it builds the code-integrity catalog, so evidence written inside the module folder
+  risks being baked into the signed catalog. Once baked in, moving or deleting that
+  evidence later shows up as a spurious `CATALOG MISMATCH` on every future run, even though
+  no code changed. Passing `-output` explicitly still works exactly as before.
+
 ### Entry point
 
 - `OAG-MainRunFile.ps1` renamed to `runMe.ps1`. Every reference across the manifest,
