@@ -140,6 +140,22 @@ function msExchangeOnlineConnect {
 
     } catch {
         logWrite (exceptionFormat -message "Failed connecting to Exchange Online" -exception $_) -level Error
+
+        # Two specific causes look like generic connection failures and send operators
+        # looking in the wrong place, so name them.
+        $detail = "$($_.ErrorDetails) $($_.Exception.Message) $($_.Exception.InnerException)"
+
+        if ($detail -match 'Object reference not set|NullReference' -and (Get-Module -Name 'Microsoft.Graph.Authentication')) {
+            logWrite "CAUSE: the Microsoft.Graph modules are loaded in this process and have already authenticated." -level Error -indent 1
+            logWrite "ExchangeOnlineManagement and Microsoft.Graph each carry their own copy of MSAL and cannot both authenticate in one process. Whichever goes second fails here. No sign-in method avoids it." -level Error -indent 1
+            logWrite "FIX: run the DFO report in its own window with .\runMe.ps1 -report DFO" -level Error -indent 1
+        }
+
+        if ($detail -match '530035|blocked by security defaults') {
+            logWrite "CAUSE: security defaults are enabled in this tenant and block device code sign-in." -level Error -indent 1
+            logWrite "FIX: sign in through the normal prompt rather than device code, or turn security defaults off for the duration of the audit if this is a test tenant." -level Error -indent 1
+        }
+
         return $result
     }
 }

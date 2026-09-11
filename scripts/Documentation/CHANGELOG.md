@@ -36,11 +36,26 @@ itself or explain itself.
 
 ### Connection resilience
 
-- `Connect-ExchangeOnline` now falls back to a broker-free sign-in and then to device
-  code before giving up. Module 3.10.x can throw a `NullReferenceException` out of
-  `Get-ConnectionContext` when the Web Account Manager broker returns nothing, which
-  previously cost the entire Defender for Office 365 report on an otherwise healthy
-  session.
+- The DFO report now runs in its own PowerShell process when the run has already signed
+  in to Graph. `ExchangeOnlineManagement` and the `Microsoft.Graph` modules each carry
+  their own copy of MSAL and cannot both authenticate in one process: whichever goes
+  second fails, for Exchange Online as a `NullReferenceException` thrown while its
+  sign-in broker is built. That is why a full run always lost the DFO report while
+  `-report DFO` on its own worked. No sign-in method avoids it, so the fix is a clean
+  process rather than a different credential.
+
+  The child process joins the run already under way (`-joinRunId`), writes its CSVs into
+  the same folder, and hands back what it produced in `child-DFO.json`. The parent folds
+  that into the completeness check, so one run still produces one folder, one summary and
+  one manifest. The operator signs in twice, once per service.
+- `Connect-ExchangeOnline` also falls back to a broker-free sign-in and then to device
+  code before giving up, and the failure message now names the two causes that look
+  generic: the MSAL conflict above, and sign-in error 530035, which means security
+  defaults are enabled and block device code.
+- `runInitialize` accepts `-runId` and `-transcriptName` so a second process can write
+  into an existing run folder without fighting the first for the transcript file.
+- `Unblock-File` is now guarded by a platform check rather than by whether the cmdlet
+  exists. Off Windows it exists and throws, which stopped the script before it started.
 
 ### Output clarity
 

@@ -35,9 +35,11 @@ Install-Module Microsoft.Graph -Scope CurrentUser -Force
 Install-Module ExchangeOnlineManagement -RequiredVersion 3.9.0 -Scope CurrentUser -Force
 ```
 
-The pinned version is deliberate. ExchangeOnlineManagement 3.10.1 has a regression affecting the
-policy cmdlets the DFO report needs. The module manifest enforces 3.9.x, so the import fails on a
-newer version rather than producing confusing errors mid-run.
+The pinned version is deliberate: 3.9.x is the line this module is tested against. `RequiredModules`
+treats it as a minimum, so a newer version still imports, and the run warns rather than stops when
+it finds one. 3.10.x requires PowerShell 7.6 or later and has been seen failing its sign-in in a
+session that has already authenticated to Graph — see the troubleshooting entry on "Object
+reference not set to an instance of an object".
 
 ### Signing — read this before anything else
 
@@ -185,6 +187,20 @@ The module retries with a device code automatically if the interactive attempt f
 **DFO produces nothing / "term is not recognised"**
 This was the temporary cmdlet module scope bug, fixed in 4.0.0. Check the transcript for
 "EXO cmdlet availability verified" — its absence means `tmpEXO_*` did not import globally.
+
+**Exchange Online fails with "Object reference not set to an instance of an object"**
+`ExchangeOnlineManagement` and the `Microsoft.Graph` modules each carry their own copy of MSAL,
+and they cannot both authenticate in one process. Whichever signs in second fails, for Exchange
+Online as a null reference thrown while its sign-in broker is built. It is not a credential
+problem and no sign-in method avoids it. A run that includes Graph reports now launches the DFO
+report in a second PowerShell process automatically, writing into the same run folder, so the
+operator signs in twice and gets one set of evidence. Running `.\runMe.ps1 -report DFO` on its
+own was always unaffected and still is.
+
+**"Your sign-in was successful but you don't have permission to access this resource" (530035)**
+Security defaults are enabled in the tenant and block device code sign-in. Use the normal sign-in
+prompt. Security defaults and conditional access are mutually exclusive, so a tenant showing this
+will also export zero conditional access policies, which is a finding rather than an export fault.
 
 **TH returns permission denied**
 `ThreatHunting.Read.All` needs tenant administrator consent. Record the gap rather than working

@@ -27,6 +27,11 @@ function runInitialize {
     -reports (optional) which reports this run covers, recorded in the metadata
     -authMode (optional) which authentication method was used
     -moduleRoot (optional) module path, used for the code integrity check
+    -runId (optional) join an existing run folder instead of creating one. Used when a
+      report has to run in its own process but its evidence belongs to the run already
+      under way, so the two processes share one folder and one manifest
+    -transcriptName (optional) transcript file name, so a second process writing into the
+      same run folder does not fight the first one for the same file
 
     RUNNING CONTEXT
     Called by  : runMe.ps1, or by a report writer if run on its own
@@ -43,7 +48,9 @@ function runInitialize {
         $output     = $PSScriptRoot,
         [string[]]$reports = @('Solo'),
         [string]$authMode  = 'Prompt',
-        [string]$moduleRoot
+        [string]$moduleRoot,
+        [string]$runId,
+        [string]$transcriptName = 'transcript.txt'
     )
 
     if (-not (Test-Path -Path $output)) {
@@ -51,7 +58,7 @@ function runInitialize {
     }
     $outputRoot = (Resolve-Path -Path $output).Path
 
-    $runId   = (Get-Date).ToString('yyyyMMdd_HHmmss')
+    if (-not $runId) { $runId = (Get-Date).ToString('yyyyMMdd_HHmmss') }
     $runRoot = Join-Path (Join-Path $outputRoot 'results') $runId
     $logPath = Join-Path $runRoot '00_RunLog'
 
@@ -74,7 +81,7 @@ function runInitialize {
         expected       = @()
         scopes         = @()
         status         = @()
-        transcriptPath = Join-Path $logPath 'transcript.txt'
+        transcriptPath = Join-Path $logPath $transcriptName
     }
 
     Start-Transcript -Path $script:run.transcriptPath -ErrorAction SilentlyContinue | Out-Null

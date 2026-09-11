@@ -31,7 +31,10 @@ function msDisconnect {
 
     if ($service -contains 'All' -or $service -contains 'Graph') {
         try {
-            if (Get-MgContext -ErrorAction SilentlyContinue) {
+            # A process that only ever connected to Exchange Online has no Graph cmdlets
+            # loaded at all, so check the cmdlet exists before calling it.
+            if ((Get-Command -Name 'Get-MgContext' -ErrorAction SilentlyContinue) -and
+                (Get-MgContext -ErrorAction SilentlyContinue)) {
                 Disconnect-MgGraph -ErrorAction Stop | Out-Null
                 logWrite "Disconnected from Microsoft Graph" -level Detail -indent 1
             }

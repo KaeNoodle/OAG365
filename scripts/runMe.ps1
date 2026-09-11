@@ -54,6 +54,8 @@
       window. Use this when the sign-in prompt keeps timing out or opens behind the
       terminal - it is also retried automatically if the interactive attempt fails
     -nonInteractive (optional) suppress confirmation pauses and the menu, for unattended runs
+    -joinRunId, -childRun (internal) used when the script re-launches itself to run the
+      DFO report in its own process - see invokeDfoOutOfProcess
 
     RUNNING CONTEXT
     Called by  : the operator
@@ -88,7 +90,14 @@ Param(
 
     [switch]$skipOnPremSync,
     [switch]$deviceCode,
-    [switch]$nonInteractive
+    [switch]$nonInteractive,
+
+    # Set by this script when it re-launches itself to run one report in a clean process.
+    # Not for operator use: -joinRunId writes into an existing run folder, and -childRun
+    # suppresses the run summary and manifest so the parent stays the single author of
+    # both. See invokeDfoOutOfProcess.
+    [string]$joinRunId,
+    [switch]$childRun
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,9 +111,10 @@ $showMenu = (-not $reportExplicitlyBound) -and (-not $nonInteractive)
 
 # Files copied from a network location or downloaded carry Mark-of-the-Web, which
 # silently blocks module import and would otherwise need each file unblocked by hand
-# through a security prompt. Unblock-File only exists on Windows, so this is a no-op
-# elsewhere, and never stops the run if it can't clear a file (e.g. ACL restrictions).
-if (Get-Command Unblock-File -ErrorAction SilentlyContinue) {
+# through a security prompt. Never stops the run if it can't clear a file (e.g. ACL
+# restrictions). The cmdlet is present but not implemented off Windows, where it throws
+# rather than doing nothing, so the platform is checked rather than the cmdlet alone.
+if ($IsWindows -and (Get-Command Unblock-File -ErrorAction SilentlyContinue)) {
     Get-ChildItem -Path $PSScriptRoot -Recurse -File -ErrorAction SilentlyContinue |
         Unblock-File -ErrorAction SilentlyContinue
 }
@@ -184,11 +194,27 @@ function invokeReports {
         logWrite "Reusing existing Microsoft Graph connection." -level Detail -indent 1
     }
 
-    if ($exoNeeded -and -not $script:exoConnected) {
+
+    # ExchangeOnlineManagement and the Microsoft.Graph modules both carry their own copy of
+    # MSAL, and they cannot both authenticate in one process: whichever goes second fails,
+    # for Exchange Online as a NullReferenceException thrown while its broker is being
+    # built. It is not a credential problem and no sign-in method avoids it, so a full run
+    # always lost the DFO report once Graph had signed in. The fix is a clean process:
+    # this script re-launches itself for DFO alone, writing into the same run folder.
+    #
+    # The test is whether Graph has signed in, not whether its modules are loaded. Loading
+    # is harmless and happens in every session, because the module manifest requires both.
+    # A DFO-only run therefore still connects in this process exactly as it always has.
+    #
+    # Evaluated after the Graph connection above, not before it: in a single run covering
+    # both services, Graph signs in first and that is exactly what makes the conflict.
+    $exoConflict = $exoNeeded -and -not $childRun -and $script:graphConnected
+
+    if ($exoNeeded -and -not $exoConflict -and -not $script:exoConnected) {
         $script:exo = msExchangeOnlineConnect -noPause:$nonInteractive
         if ($script:exo.connected) { $script:exoConnected = $true }
         else { logWrite "Could not connect to Exchange Online. The DFO report will be skipped." -level Error }
-    } elseif ($exoNeeded) {
+    } elseif ($exoNeeded -and -not $exoConflict) {
         logWrite "Reusing existing Exchange Online connection." -level Detail -indent 1
     }
 
@@ -204,10 +230,76 @@ function invokeReports {
             'ORG' { orgReportWrite -skipOnPremSync:$skipOnPremSync | Out-Null }
             'TH'  { threatHuntReportWrite | Out-Null }
             'DFO' {
-                if ($script:exo -and $script:exo.connected) { dfoReportWrite | Out-Null }
+                if ($exoConflict) { invokeDfoOutOfProcess }
+                elseif ($script:exo -and $script:exo.connected) { dfoReportWrite | Out-Null }
                 else { logWrite "Skipped - no Exchange Online connection." -level Warning -indent 1 }
             }
         }
+    }
+}
+
+# ----------------------------------------------------------------------------------------
+# Runs the DFO report in a second PowerShell process and folds its results back into this
+# run. Needed because ExchangeOnlineManagement cannot authenticate in a process where the
+# Microsoft.Graph modules have already authenticated.
+#
+# The child is this same script with -report DFO -joinRunId <this run>, so it writes its
+# CSVs straight into the run folder that is already open. It records what it produced in
+# child-DFO.json, which is read back here, so completeness.csv and the manifest still
+# describe one run written by one author.
+#
+# The child inherits this console, so its Exchange Online sign-in prompt behaves exactly
+# as it would if the operator had run the report by hand in a new window.
+# ----------------------------------------------------------------------------------------
+function invokeDfoOutOfProcess {
+    logWrite "Exchange Online cannot authenticate in this process because the Microsoft.Graph modules already have." -level Warning -indent 1
+    logWrite "Running the DFO report in a clean PowerShell process instead. Sign in again when prompted." -level Warning -indent 1
+
+    $host_exe = (Get-Process -Id $PID).Path
+    if (-not $host_exe -or -not (Test-Path $host_exe)) {
+        logWrite "Could not locate this PowerShell executable, so the DFO report cannot be run separately." -level Error -indent 1
+        logWrite "Run it by hand in a new window: .\runMe.ps1 -report DFO" -level Error -indent 1
+        return
+    }
+
+    $childArgs = @(
+        '-NoProfile', '-NoLogo', '-File', $PSCommandPath,
+        '-report', 'DFO',
+        '-output', $output,
+        '-joinRunId', $script:run.id,
+        '-childRun'
+    )
+    if ($nonInteractive) { $childArgs += '-nonInteractive' }
+
+    # Clear any result file left by an earlier DFO run in this session, so a child that
+    # dies before writing one cannot be mistaken for a child that succeeded.
+    $handoff = Join-Path $script:run.logPath 'child-DFO.json'
+    Remove-Item -Path $handoff -Force -ErrorAction SilentlyContinue
+
+    $childExit = $null
+    try {
+        & $host_exe @childArgs
+        $childExit = $LASTEXITCODE
+    } catch {
+        logWrite "Could not start the separate DFO process: $($_.Exception.Message)" -level Error -indent 1
+        return
+    }
+
+    if (-not (Test-Path $handoff)) {
+        logWrite "The separate DFO process left no result file (exit code $childExit). Its evidence, if any, is still in the run folder but is not in the completeness check." -level Error -indent 1
+        return
+    }
+
+    try {
+        $child = Get-Content -Path $handoff -Raw | ConvertFrom-Json
+
+        foreach ($item in @($child.expected)) { $script:run.expected += $item }
+        foreach ($event in @($child.events))  { $script:run.events   += $event }
+        foreach ($state in @($child.status))  { $script:run.status   += $state }
+
+        logWrite "Folded $(@($child.expected).Count) DFO export(s) back into this run." -level Detail -indent 1
+    } catch {
+        logWrite "Could not read the DFO result file: $($_.Exception.Message)" -level Error -indent 1
     }
 }
 
@@ -426,6 +518,34 @@ function finalizeRun {
     Write-Host "Verify with        : .\Tools\Verify-Export.ps1 -runFolder '$($script:run.rootPath)'" -ForegroundColor Gray
 }
 
+# ----------------------------------------------------------------------------------------
+# Shutdown for a child process started by invokeDfoOutOfProcess. It writes what it produced
+# to child-DFO.json and stops, leaving the run summary, completeness check and manifest to
+# the parent. Two processes writing those would produce two contradictory accounts of one
+# run, and the manifest hashes the whole folder, so it has to be written last and once.
+# ----------------------------------------------------------------------------------------
+function finalizeChildRun {
+    param([string[]]$reports)
+
+    $script:run.currentReport = 'Shutdown'
+    $script:run.endTime = Get-Date
+
+    logWrite ""
+    logWrite ("=" * 70) -level Detail
+    msDisconnect -service ExchangeOnline
+
+    [PSCustomObject]@{
+        runId    = $script:run.id
+        reports  = $reports
+        expected = $script:run.expected
+        events   = $script:run.events
+        status   = $script:run.status
+    } | ConvertTo-Json -Depth 6 |
+        Out-File (Join-Path $script:run.logPath "child-$($reports -join '-').json") -Encoding utf8
+
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+}
+
 if (-not $showMenu) {
     # ------------------------------------------------------------------------------------
     # Scripted / unattended path - unchanged behaviour from before the menu existed.
@@ -434,7 +554,13 @@ if (-not $showMenu) {
     if (-not $selected) { throw "No valid reports selected." }
     $script:sessionReports = $selected
 
-    $run = runInitialize -output $output -reports $selected -authMode $PSCmdlet.ParameterSetName -moduleRoot $PSScriptRoot
+    $initArgs = @{ output = $output; reports = $selected; authMode = $PSCmdlet.ParameterSetName; moduleRoot = $PSScriptRoot }
+    if ($childRun) {
+        # Join the parent's run folder and keep off its transcript file.
+        $initArgs['runId']          = $joinRunId
+        $initArgs['transcriptName'] = "transcript-$($selected -join '-').txt"
+    }
+    $run = runInitialize @initArgs
 
     try {
         invokeReports -names $selected
@@ -442,7 +568,7 @@ if (-not $showMenu) {
         logWrite "RUN FAILED: $($_.Exception.Message)" -level Error
         logWrite $_.ScriptStackTrace -level Detail
     } finally {
-        finalizeRun
+        if ($childRun) { finalizeChildRun -reports $selected } else { finalizeRun }
     }
 
 } else {
