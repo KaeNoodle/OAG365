@@ -232,8 +232,8 @@ function showMainMenu {
 function showReportsMenu {
     Write-Host ""
     Write-Host "Reports" -ForegroundColor Cyan
-    Write-Host " 1) Get full report
-    Write-Host " 2) Get partial report
+    Write-Host " 1) Get full report"
+    Write-Host " 2) Get partial report"
     Write-Host " 0) Back"
 
     switch (Read-Host "Choose an option") {
