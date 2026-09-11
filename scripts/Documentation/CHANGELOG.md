@@ -2,6 +2,23 @@
 
 ## Unreleased — failures observed on a live test tenant
 
+### Second round, after re-running against the same tenant
+
+- The Exchange Online connection is no longer gated on `Get-ConnectionInformation`. In
+  3.10.x that call is built on `Get-ConnectionContext`, which throws a null reference on
+  some builds even when the session behind it is healthy, and `-ErrorAction` cannot
+  suppress a thrown exception. The run was discarding a working session and skipping the
+  whole DFO report on the strength of a broken status lookup. The gate is now a live
+  call to a cmdlet the report needs; the account and tenant names are recorded from
+  `Get-ConnectionInformation` when it answers and skipped when it does not.
+- The DFO report writer and `msDisconnect` had the same lookup in the same shape and are
+  guarded the same way.
+- Advanced hunting now recognises `400 Bad Request` with "Failed to resolve table". The
+  `DeviceTvm` tables come from Defender for Endpoint and Defender Vulnerability
+  Management, so they do not exist in a tenant with no onboarded devices. That is a
+  capability the tenant does not have rather than a fault, so it is recorded as not
+  applicable and names the missing table instead of printing a stack trace.
+
 A full run against a test tenant produced three stack traces and one misleading empty
 file, none of which were faults in the tenant. This round makes each of them either fix
 itself or explain itself.

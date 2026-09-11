@@ -46,7 +46,14 @@ function msDisconnect {
     if ($service -contains 'All' -or $service -contains 'ExchangeOnline') {
         try {
             if (Get-Command -Name 'Get-ConnectionInformation' -ErrorAction SilentlyContinue) {
-                if (Get-ConnectionInformation -ErrorAction SilentlyContinue) {
+                # Same broken lookup as in the connect function: if it throws, fall back to
+                # the generated cmdlet module, whose presence means there is a session to
+                # close.
+                $hasSession = $false
+                try   { $hasSession = [bool](Get-ConnectionInformation -ErrorAction SilentlyContinue) }
+                catch { $hasSession = [bool](Get-Module -Name 'tmpEXO_*') }
+
+                if ($hasSession) {
                     Disconnect-ExchangeOnline -Confirm:$false -ErrorAction Stop
                     logWrite "Disconnected from Exchange Online" -level Detail -indent 1
                 }

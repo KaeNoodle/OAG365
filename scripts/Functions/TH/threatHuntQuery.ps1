@@ -246,7 +246,14 @@ function threatHuntQueryRun {
             $status = 401
         } elseif ($message -match 'Forbidden') {
             $status = 403
+        } elseif ($message -match 'BadRequest|Bad Request') {
+            $status = 400
         }
+
+        # The status line says only "Bad Request". Which table the service could not find
+        # is in the response body, which the SDK leaves in ErrorDetails.
+        $detail = "$($_.ErrorDetails) $message"
+        $missingTable = if ($detail -match "named '([^']+)'") { $Matches[1] } else { $null }
 
         # Two different failures arrive here and they mean opposite things for the audit.
         #
@@ -273,14 +280,25 @@ function threatHuntQueryRun {
         } elseif ($status -eq 401) {
             logWrite "UNAUTHORISED for $($definition.description). ThreatHunting.Read.All was requested but is not in the granted scope set." -level Error -indent 1
             'Unauthorised - ThreatHunting.Read.All not granted'
+        } elseif ($status -eq 400 -and $detail -match 'Failed to resolve table') {
+            # The query reached advanced hunting and advanced hunting understood it. The
+            # table simply does not exist in this tenant, which is what happens when the
+            # workload behind it was never onboarded. The DeviceTvm* tables come from
+            # Defender for Endpoint and Defender Vulnerability Management, so a tenant with
+            # no onboarded devices has no rows and no table to hold them.
+            logWrite "Advanced hunting table $missingTable does not exist in this tenant." -level Warning -indent 1
+            logWrite "The DeviceTvm tables come from Defender for Endpoint and Defender Vulnerability Management. With no onboarded devices there is nothing to query." -level Warning -indent 2
+            logWrite "Record this as scope not applicable rather than a failed test." -level Warning -indent 2
+            "Advanced hunting table $missingTable not available in this tenant"
         } else {
             logWrite (exceptionFormat -message "Failed running hunting query '$($definition.description)'" -exception $_) -level Error -indent 1
             "Query failed - $message"
         }
 
-        # A tenant with no Defender XDR behind the endpoint has no control to test, so the
-        # absent file is not a gap in the evidence. A permission failure is.
-        $notApplicable = ($status -eq 401 -and $granted)
+        # A tenant with no Defender workload behind the endpoint has no control to test, so
+        # the absent file is not a gap in the evidence. A permission failure is.
+        $notApplicable = ($status -eq 401 -and $granted) -or
+                         ($status -eq 400 -and $detail -match 'Failed to resolve table')
 
         # Both classifications apply to the whole endpoint, not to this one query, so tell
         # the caller to stop rather than repeat the same failure for every remaining query.

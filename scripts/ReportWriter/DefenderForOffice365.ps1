@@ -46,9 +46,22 @@ function dfoReportWrite {
     try {
         # Connect only if a session is not already open, so running this report on its
         # own works and running it from the main file does not prompt twice.
+        # Get-ConnectionInformation is the natural test, but on module versions where
+        # Get-ConnectionContext is broken it throws outright rather than returning nothing,
+        # and -ErrorAction cannot suppress a thrown exception. That ended this report
+        # before it started, on a session that was working. Treat a throw as "cannot tell
+        # from here" and fall back to whether the cmdlets this report needs are present,
+        # which is the thing that actually matters.
         $connected = $false
-        if (Get-Command Get-ConnectionInformation -ErrorAction SilentlyContinue) {
-            $connected = [bool](Get-ConnectionInformation -ErrorAction SilentlyContinue)
+        try {
+            if (Get-Command Get-ConnectionInformation -ErrorAction SilentlyContinue) {
+                $connected = [bool](Get-ConnectionInformation -ErrorAction SilentlyContinue)
+            }
+        } catch {
+            $connected = $false
+        }
+        if (-not $connected) {
+            $connected = [bool](Get-Command -Name 'Get-MalwareFilterPolicy' -ErrorAction SilentlyContinue)
         }
         if (-not $connected) {
             $connection = msExchangeOnlineConnect

@@ -21,8 +21,11 @@ function msExchangeOnlineConnect {
       nothing, and that failure otherwise costs the entire DFO report.
     Re-imports the generated tmpEXO_* module with -Global so its cmdlets survive the
       return. This is the fix.
-    Proves a known EXO cmdlet is actually callable before the export functions rely on
-      it, rather than assuming the fix worked.
+    Proves a known EXO cmdlet is actually callable, and then actually calls it, before the
+      export functions rely on it, rather than assuming the fix worked.
+    Records the account and tenant if Get-ConnectionInformation will supply them, but does
+      not require it to, since it fails on module versions where the session itself is
+      fine.
 
     PARAMETERS
     -modules (optional) defaults to ExchangeOnlineManagement
@@ -119,21 +122,41 @@ function msExchangeOnlineConnect {
             logWrite "No tmpEXO_* module found after connecting. EXO cmdlets may be unavailable." -level Warning -indent 1
         }
 
-        $connection = Get-ConnectionInformation -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $connection -or $connection.State -ne 'Connected') {
-            throw "Exchange Online connection state is '$($connection.State)'."
-        }
-
-        $result.connected         = $true
-        $result.userPrincipalName = $connection.UserPrincipalName
-        $result.organization      = $connection.Organization
-        logWrite "Connected to $($connection.Organization) as $($connection.UserPrincipalName)" -level Success -indent 1
-
-        # Verify rather than assume. This is the exact failure the fix above addresses.
+        # Verify rather than assume. This is the exact failure the module scope fix above
+        # addresses.
         if (-not (Get-Command -Name 'Get-MalwareFilterPolicy' -ErrorAction SilentlyContinue)) {
             throw "Connected, but the EXO cmdlets are not available in this scope. The temporary cmdlet module did not import correctly."
         }
-        logWrite "EXO cmdlet availability verified" -level Success -indent 1
+
+        # A real call, not a status property. What the export needs is a session that
+        # answers cmdlets, and this proves exactly that with one the DFO report uses anyway.
+        try {
+            Get-MalwareFilterPolicy -ErrorAction Stop | Select-Object -First 1 | Out-Null
+            logWrite "EXO session verified with a live cmdlet call" -level Success -indent 1
+        } catch {
+            throw "Connected, but the first Exchange Online cmdlet call failed: $($_.Exception.Message)"
+        }
+
+        $result.connected = $true
+
+        # Account and tenant are recorded if available, and the run continues if they are
+        # not. Get-ConnectionInformation is built on Get-ConnectionContext, which throws a
+        # null reference in 3.10.x on some builds even when the session behind it is
+        # healthy. Gating the connection on it threw away a working Exchange Online
+        # session and skipped the whole DFO report.
+        $connection = $null
+        try { $connection = Get-ConnectionInformation -ErrorAction Stop | Select-Object -First 1 } catch { }
+
+        if ($connection) {
+            $result.userPrincipalName = $connection.UserPrincipalName
+            $result.organization      = $connection.Organization
+            logWrite "Connected to $($connection.Organization) as $($connection.UserPrincipalName)" -level Success -indent 1
+            if ($connection.State -and $connection.State -ne 'Connected') {
+                logWrite "Reported connection state is '$($connection.State)', but cmdlets are answering." -level Warning -indent 1
+            }
+        } else {
+            logWrite "Connected, but Get-ConnectionInformation returned nothing, so the account and tenant are not recorded against this run. Known in module 3.10.x and it does not affect the export." -level Warning -indent 1
+        }
 
         if (-not $noPause) { Pause }
         return $result
