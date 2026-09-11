@@ -1,0 +1,11 @@
+# Audit evidence. Written by runMe.ps1 next to scripts\ by default, and must never be
+# committed - it is live tenant data, and anything under the module folder can also end up
+# hashed into the signed code catalog. See scripts\Documentation\Verification.md.
+results/
+
+# Build output from Tools\Build-Module.ps1 (defaults to <SourceRoot>\..\dist).
+dist/
+
+# Editor backup files. Two of these were committed by accident and sat in the tree for
+# months, drifting out of date with the real files they shadowed.
+*~

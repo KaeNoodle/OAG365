@@ -2,6 +2,19 @@
 
 ## 4.1.0 — Renamed entry point, interactive menu, broader Debugger
 
+### Repository layout
+
+- Top-level module folder renamed from `OAG365v1` to `scripts`.
+- `-output` now defaults to the folder next to `scripts\` (a `results\` folder at the
+  repository root) instead of inside it, and the run-output subfolder itself is renamed
+  from `M365\<runId>\` to `results\<runId>\`. Same reasoning for the solo-report path in
+  `runEnsure.ps1`, which now passes a separate `moduleRoot`/`outputRoot`.
+  This is deliberate: `Tools\New-OagCatalog.ps1` hashes everything under its target folder
+  when it builds the code-integrity catalog, so evidence written inside the module folder
+  risks being baked into the signed catalog. Once baked in, moving or deleting that
+  evidence later shows up as a spurious `CATALOG MISMATCH` on every future run, even though
+  no code changed. Passing `-output` explicitly still works exactly as before.
+
 ### Entry point
 
 - `OAG-MainRunFile.ps1` renamed to `runMe.ps1`. Every reference across the manifest,
@@ -22,6 +35,27 @@
   defaulting to the most recent completed run) — not the release-engineering scripts
   (`Build-Module.ps1`, `New-OagCatalog.ps1`), which stay out of the operator-facing menu.
   Help now points to the Debugger when the module won't run at all.
+
+### Cleanup
+
+- `Tools\Build-Module.ps1` worked against a source layout that no longer exists. It read
+  `Private\` and `Public\`, which threw immediately under `$ErrorActionPreference = 'Stop'`,
+  so the build was dead. It now reads `Functions\` and `ReportWriter\`, takes its
+  `Export-ModuleMember` list from the manifest's `FunctionsToExport` rather than from
+  filenames (a filename is not a function name here — `ConditionalAccessPolicy.ps1` defines
+  `capReportWrite`), and validates by counting function definitions rather than files, which
+  previously guaranteed a count mismatch.
+- `Tools\Debugger.ps1` defaulted `-ModulePath` to `$PSScriptRoot`, which resolves to `Tools\`
+  rather than the module root, so a standalone run checked the wrong folder. Now defaults to
+  the parent.
+- Removed two committed editor backup files (`OAG-ModuleManifest.psd1~`,
+  `graphObjectResolve.ps1~`) that shadowed real files with stale copies, and added a
+  `.gitignore` covering `results/`, `dist/` and `*~`.
+- Corrected stale references throughout: `Docs\` → `Documentation\`, `Test-OagM365Integrity`
+  → `codeVerify`, `Get-OagM365IamPimRole` → `iamPimRoleGet`, and the README's unblock command,
+  which still named the old module folder.
+- `orgEmailExport` built its DMARC result with `+=` against an uninitialised variable where
+  the surrounding MX and SPF lines used `=`.
 
 ### Diagnostics
 

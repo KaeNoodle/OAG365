@@ -42,7 +42,9 @@
     PARAMETERS
     -report (optional, one of: CAP, IAM, ORG, DFO, TH, All) accepts multiple values. Omit
       it (without -nonInteractive) to get the interactive menu instead.
-    -output (optional) evidence folder, defaults to this script's folder
+    -output (optional) evidence root, defaults to a results\ folder next to this script's
+      folder rather than inside it - a code-catalog rebuild hashes everything under the
+      module folder, so evidence living there risks getting baked into the code catalog
     -appClientId (optional) application ID for enterprise application authentication
     -appTenantId (optional) tenant ID for enterprise application authentication
     -appCertThumbprint (optional) certificate thumbprint, must be in the machine store
@@ -72,7 +74,7 @@
 [CmdletBinding(DefaultParameterSetName = 'Prompt')]
 Param(
     [ValidateSet('CAP', 'IAM', 'ORG', 'DFO', 'TH', 'All')][string[]]$report = 'All',
-    $output = $PSScriptRoot,
+    $output = (Split-Path -Path $PSScriptRoot -Parent),
 
     [Parameter(Mandatory = $true, ParameterSetName = 'AppCertThumbprint')]
     [Parameter(Mandatory = $true, ParameterSetName = 'AppSecret')][string]$appClientId,
@@ -230,8 +232,8 @@ function showMainMenu {
 function showReportsMenu {
     Write-Host ""
     Write-Host "Reports" -ForegroundColor Cyan
-    Write-Host " 1) Get full report - runs all 5 reports"
-    Write-Host " 2) Get partial report - choose which"
+    Write-Host " 1) Get full report"
+    Write-Host " 2) Get partial report"
     Write-Host " 0) Back"
 
     switch (Read-Host "Choose an option") {
@@ -273,10 +275,10 @@ function showToolsMenu {
     switch (Read-Host "Choose an option") {
         '1' { & (Join-Path $PSScriptRoot 'Tools\Debugger.ps1') -ModulePath $PSScriptRoot }
         '2' {
-            $m365Root = Join-Path $output 'M365'
+            $resultsRoot = Join-Path $output 'results'
             $default = $null
-            if (Test-Path $m365Root) {
-                $default = Get-ChildItem -Path $m365Root -Directory -ErrorAction SilentlyContinue |
+            if (Test-Path $resultsRoot) {
+                $default = Get-ChildItem -Path $resultsRoot -Directory -ErrorAction SilentlyContinue |
                     Where-Object { Test-Path (Join-Path $_.FullName 'manifest.sha256') } |
                     Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
             }
@@ -305,7 +307,7 @@ function showHelpScreen {
     Write-Host "Key parameters: -output, -skipOnPremSync, -nonInteractive, or the app-auth" -ForegroundColor Gray
     Write-Host "parameters (-appClientId/-appTenantId with -appCertThumbprint or -appSecret)." -ForegroundColor Gray
     Write-Host ""
-    Write-Host "Evidence for this session is written under: $(Join-Path $output 'M365')" -ForegroundColor Gray
+    Write-Host "Evidence for this session is written under: $(Join-Path $output 'results')" -ForegroundColor Gray
     Write-Host ""
     Write-Host "If the module won't run at all, use Tools > Debugger - it checks Constrained" -ForegroundColor Gray
     Write-Host "Language Mode, execution policy, and required PowerShell/module versions." -ForegroundColor Gray

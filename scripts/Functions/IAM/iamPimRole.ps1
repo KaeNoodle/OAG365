@@ -163,7 +163,7 @@ function iamPimRoleMemberGet {
 
     DESCRIPTION
     Build an array of privileged role members from data provided by
-    Get-OagM365IamPimRole
+    iamPimRoleGet
 
     LOGIC
     Runs 5 loops over the returned collection.
