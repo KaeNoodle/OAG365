@@ -9,7 +9,7 @@ The problem
 -----------
 Under WDAC, AppLocker or Airlock, PowerShell evaluates trust for EVERY file it loads, and the
 language mode is bound to each scriptblock when that file is parsed. Trust is not inherited from
-the caller. A signed and trusted runMe.ps1 that dot-sources 62 unsigned files does not make
+the caller. A signed and trusted runMe.ps1 that dot-sources dozens of unsigned files does not make
 those files trusted; each is evaluated on its own and parsed in ConstrainedLanguage.
 
 It then fails harder than you would expect. PowerShell refuses to dot-source a command defined
@@ -20,28 +20,28 @@ under a different language mode, to stop untrusted code being promoted into a tr
 So partial trust does not give partial function. It gives a broken module. It is all or nothing
 across every file the module loads.
 
-The development layout has 68 .ps1/.psm1/.psd1 files. Signing all of them individually would mean
-68 signing operations for every change, which is exactly the cost the file catalog was meant to
-avoid - and a catalog only helps with execution if it is installed into the system catalog store,
-which needs administrator rights on every workstation.
+The development layout is dozens of .ps1/.psm1/.psd1 files. Signing all of them individually
+would mean one signing operation per file for every change, which is exactly the cost the file
+catalog was meant to avoid - and a catalog only helps with execution if it is installed into the
+system catalog store, which needs administrator rights on every workstation.
 
 The fix
 -------
 Keep the split source for development, and build a merged distribution for signing and release.
-Every function from Private\ and Public\ is concatenated into a single .psm1, leaving three files
-to sign:
+Every function from Functions\ and ReportWriter\ is concatenated into a single .psm1, leaving
+three files to sign:
 
-    OAG-ModuleManifest.psd1      manifest
-    OAG-M365-AuditingScript.psm1      all 62 functions merged
-    runMe.ps1                   entry point
+    OAG-ModuleManifest.psd1           manifest
+    OAG-M365-AuditingScript.psm1      every function merged
+    runMe.ps1                         entry point
 
-Three signing operations instead of 68, no cross-file dot-sourcing at runtime, and the source
+Three signing operations instead of dozens, no cross-file dot-sourcing at runtime, and the source
 tree stays readable and reviewable. This is a common pattern for production PowerShell modules and
 it happens to solve the application control problem cleanly.
 
-Docs\ and Tools\ are copied across but not merged. Tools scripts are run directly by an operator,
-so they need their own signatures if they are to run under enforcement - Debugger.ps1 is
-written to work in ConstrainedLanguage precisely because it may have to.
+Documentation\ and Tools\ are copied across but not merged. Tools scripts are run directly by an
+operator, so they need their own signatures if they are to run under enforcement - Debugger.ps1
+is written to work in ConstrainedLanguage precisely because it may have to.
 
 .PARAMETER SourceRoot
 Module source root. Defaults to the parent of this script's folder.
@@ -95,18 +95,28 @@ if ($Clean -and (Test-Path $OutputPath)) {
 New-Item -ItemType Directory -Force -Path $buildPath | Out-Null
 
 # ------------------------------------------------------------------------------------------
-# Collect source functions. Private first, then Public, matching the loader's order. Order does
-# not actually matter for function definitions in a single file - PowerShell resolves calls at
-# invocation, not at parse - but keeping it consistent makes the merged file easier to compare
-# against the source tree during review.
+# Collect source files. Functions\ first, then ReportWriter\, matching the loader's order in
+# OAG-FileInfo.psm1. Order does not actually matter for function definitions in a single file -
+# PowerShell resolves calls at invocation, not at parse - but keeping it consistent makes the
+# merged file easier to compare against the source tree during review.
 # ------------------------------------------------------------------------------------------
-$privateFiles = @(Get-ChildItem -Path (Join-Path $SourceRoot 'Private') -Filter '*.ps1' -Recurse |
-                  Sort-Object FullName)
-$publicFiles  = @(Get-ChildItem -Path (Join-Path $SourceRoot 'Public')  -Filter '*.ps1' -Recurse |
-                  Sort-Object FullName)
+$functionFiles = @(Get-ChildItem -Path (Join-Path $SourceRoot 'Functions')    -Filter '*.ps1' -Recurse |
+                   Sort-Object FullName)
+$reportFiles   = @(Get-ChildItem -Path (Join-Path $SourceRoot 'ReportWriter') -Filter '*.ps1' -Recurse |
+                   Sort-Object FullName)
 
-Write-Host "  Private functions : $($privateFiles.Count)"
-Write-Host "  Public functions  : $($publicFiles.Count)"
+$sourceFiles = @($functionFiles + $reportFiles)
+
+# One file does not mean one function here - graphObjectResolve.ps1 alone defines seven - so
+# count definitions rather than files, otherwise the validation at the end compares the wrong
+# two numbers and always fails.
+$sourceFunctionCount = @($sourceFiles | ForEach-Object {
+    Select-String -Path $_.FullName -Pattern '^\s*function\s+\w+' -AllMatches
+}).Count
+
+Write-Host "  Shared functions  : $($functionFiles.Count) file(s)"
+Write-Host "  Report writers    : $($reportFiles.Count) file(s)"
+Write-Host "  Functions defined : $sourceFunctionCount"
 Write-Host ""
 
 # ------------------------------------------------------------------------------------------
@@ -122,22 +132,23 @@ $null = $sb.AppendLine(@"
     GENERATED FILE - DO NOT EDIT DIRECTLY.
 
     Built from the split source tree by Tools\Build-Module.ps1 on $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss').
-    Edit the source under Private\ and Public\, then rebuild.
+    Edit the source under Functions\ and ReportWriter\, then rebuild.
 
-    All $($privateFiles.Count + $publicFiles.Count) functions are merged into this single file so the module can be
-    distributed as three signable files rather than 68. Under application control, PowerShell
-    evaluates trust per file and refuses to dot-source across language modes, so a module that
-    loads many separate files needs every one of them trusted. See Docs\ConstrainedLanguageMode.md.
+    All $sourceFunctionCount functions are merged into this single file so the module can be
+    distributed as three signable files rather than $($sourceFiles.Count + 3). Under application control,
+    PowerShell evaluates trust per file and refuses to dot-source across language modes, so a
+    module that loads many separate files needs every one of them trusted. See
+    Documentation\Verification.md.
 
     Source files merged:
-$(($privateFiles + $publicFiles | ForEach-Object { "      " + $_.FullName.Substring($SourceRoot.Length).TrimStart('\','/') }) -join "`n")
+$(($sourceFiles | ForEach-Object { "      " + $_.FullName.Substring($SourceRoot.Length).TrimStart('\','/') }) -join "`n")
 #>
 
 Set-StrictMode -Version Latest
 
 "@)
 
-foreach ($file in @($privateFiles + $publicFiles)) {
+foreach ($file in $sourceFiles) {
     $relative = $file.FullName.Substring($SourceRoot.Length).TrimStart('\', '/')
     $content = Get-Content -Path $file.FullName -Raw
 
@@ -149,7 +160,11 @@ foreach ($file in @($privateFiles + $publicFiles)) {
     $null = $sb.AppendLine()
 }
 
-$exportNames = $publicFiles | ForEach-Object { "'$($_.BaseName)'" }
+# Take the export list from the manifest, not from filenames. A filename is not a function name
+# in this source tree - ConditionalAccessPolicy.ps1 defines capReportWrite - so deriving exports
+# from BaseName would export names that do not exist.
+$sourceManifest = Import-PowerShellDataFile -Path (Join-Path $SourceRoot 'OAG-ModuleManifest.psd1')
+$exportNames = $sourceManifest.FunctionsToExport | ForEach-Object { "'$_'" }
 $null = $sb.AppendLine("Export-ModuleMember -Function @($($exportNames -join ', '))")
 
 $psm1Path = Join-Path -Path $buildPath -ChildPath 'OAG-M365-AuditingScript.psm1'
@@ -220,12 +235,10 @@ if ($manifest) {
 $mergedAst = [System.Management.Automation.Language.Parser]::ParseFile($psm1Path, [ref]$null, [ref]$null)
 $mergedFunctions = $mergedAst.FindAll(
     { $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $false)
-$expectedCount = $privateFiles.Count + $publicFiles.Count
-
-if ($mergedFunctions.Count -eq $expectedCount) {
-    Write-Host "  All $expectedCount function(s) present in merged module" -ForegroundColor Green
+if ($mergedFunctions.Count -eq $sourceFunctionCount) {
+    Write-Host "  All $sourceFunctionCount function(s) present in merged module" -ForegroundColor Green
 } else {
-    Write-Host "  Expected $expectedCount function(s), found $($mergedFunctions.Count)" -ForegroundColor Red
+    Write-Host "  Expected $sourceFunctionCount function(s), found $($mergedFunctions.Count)" -ForegroundColor Red
     throw "Build failed: function count mismatch."
 }
 
@@ -247,7 +260,7 @@ foreach ($f in ($signable | Sort-Object FullName)) {
     Write-Host "    $rel"
 }
 Write-Host ""
-Write-Host "  Source tree had 68 files needing trust. Built module has $($signable.Count)." -ForegroundColor Green
+Write-Host "  Source tree had $($sourceFiles.Count) files needing trust. Built module has $($signable.Count)." -ForegroundColor Green
 Write-Host ""
 Write-Host "NEXT STEPS" -ForegroundColor Cyan
 Write-Host '  $cert = (Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert)[0]' -ForegroundColor Gray
