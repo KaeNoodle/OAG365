@@ -129,7 +129,8 @@ $requirements = @{
     'IAM' = @{ service = 'Graph'
         scopes  = @('Directory.Read.All','DeviceManagementApps.Read.All','Device.Read.All','Application.Read.All',
                     'AuditLog.Read.All','RoleManagement.Read.Directory',
-                    'PrivilegedEligibilitySchedule.Read.AzureADGroup','PrivilegedAssignmentSchedule.Read.AzureADGroup')
+                    'PrivilegedEligibilitySchedule.Read.AzureADGroup','PrivilegedAssignmentSchedule.Read.AzureADGroup',
+                    'RoleManagementPolicy.Read.AzureADGroup')
         modules = @('Microsoft.Graph.Authentication','Microsoft.Graph.DirectoryObjects','Microsoft.Graph.Users',
                     'Microsoft.Graph.Groups','Microsoft.Graph.Identity.DirectoryManagement','Microsoft.Graph.Applications',
                     'Microsoft.Graph.Reports','Microsoft.Graph.Identity.Governance') }
@@ -403,6 +404,7 @@ function finalizeRun {
         completenessStatus = $completeness.status
         filesExpected = $completeness.filesExpected; filesOk = $completeness.filesOk
         filesEmpty = $completeness.filesEmpty; filesMissing = $completeness.filesMissing
+        filesNotApplicable = $completeness.filesNotApplicable
         errors = $completeness.errorCount; warnings = $completeness.warningCount
     } | ConvertTo-Json -Depth 4 | Out-File (Join-Path $script:run.logPath 'run-summary.json') -Encoding utf8
 
@@ -410,7 +412,9 @@ function finalizeRun {
     logWrite "RUN SUMMARY"
     logWrite "Run ID   : $($script:run.id)" -level Detail -indent 1
     logWrite "Reports  : $((($script:run.status | Where-Object succeeded) | ForEach-Object { $_.report }) -join ', ')" -level Detail -indent 1
-    logWrite "Files    : $($completeness.filesOk) OK, $($completeness.filesEmpty) empty, $($completeness.filesMissing) missing" -level Detail -indent 1
+    $fileLine = "Files    : $($completeness.filesOk) OK, $($completeness.filesEmpty) empty, $($completeness.filesMissing) missing"
+    if ($completeness.filesNotApplicable -gt 0) { $fileLine += ", $($completeness.filesNotApplicable) not applicable" }
+    logWrite $fileLine -level Detail -indent 1
     logWrite "Status   : $($completeness.status)" -level $(if ($completeness.status -eq 'Complete') { 'Success' } else { 'Warning' }) -indent 1
 
     # Transcript closed BEFORE the manifest - see LOGIC in the header.

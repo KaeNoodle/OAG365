@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased — failures observed on a live test tenant
+
+A full run against a test tenant produced three stack traces and one misleading empty
+file, none of which were faults in the tenant. This round makes each of them either fix
+itself or explain itself.
+
+### Permissions
+
+- Added `RoleManagementPolicy.Read.AzureADGroup` to the IAM scope set. Without it every
+  PIM group policy lookup returned `403 PermissionScopeNotGranted`, so the run captured
+  who was in each PIM-managed group but no evidence of the activation controls over
+  them - approval, MFA on activation, maximum duration, justification. The group
+  membership calls kept working throughout, so the gap was silent in the CSV output and
+  visible only as a stack trace in the transcript. This scope prompts for consent on the
+  next interactive sign-in.
+
+### Failure reporting
+
+- PIM policy lookups now distinguish a missing scope from a missing licence from a real
+  fault, and report a missing scope once per run rather than once per role and once per
+  group. A four-group tenant previously produced four identical multi-screen 403 dumps.
+- Defender advanced hunting now separates `403` (consent not granted, operator can fix)
+  from `401` with the scope already granted, which is what the endpoint returns when the
+  tenant has no Microsoft Defender XDR workload onboarded. The second is not a permission
+  problem and recording it as one puts a remediation in the working paper that would
+  never have worked.
+- When the hunting endpoint refuses the first query it refuses all of them, so the
+  remaining queries are now skipped with the reason recorded instead of repeating the
+  same failure three times.
+- `completeness.csv` gained a `reason` column and a `Not applicable` status for evidence
+  that is absent because the capability does not exist in the tenant. An absent file for
+  a control that cannot exist is not a gap, and it no longer reads as one. `Missing`
+  still means what it always meant.
+
+### Connection resilience
+
+- `Connect-ExchangeOnline` now falls back to a broker-free sign-in and then to device
+  code before giving up. Module 3.10.x can throw a `NullReferenceException` out of
+  `Get-ConnectionContext` when the Web Account Manager broker returns nothing, which
+  previously cost the entire Defender for Office 365 report on an otherwise healthy
+  session.
+
+### Output clarity
+
+- A tenant with no conditional access policies now says so, and says that the empty
+  summary file is the evidence of it. Previously the run printed "Processing policy..."
+  and wrote an empty CSV, which reads like a broken export rather than a finding.
+- MX lookups print one line per domain with a record count, not one line per MX record.
+  A single domain routed to Exchange Online was producing nine identical lines.
+
 ## 4.1.0 — Renamed entry point, interactive menu, broader Debugger
 
 ### Repository layout

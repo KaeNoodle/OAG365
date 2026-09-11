@@ -200,11 +200,14 @@ function orgDomainMxGet {
 
     $getMgDomains | ForEach-Object { 
         try {
-            $records = Resolve-DnsName -Type MX -Name $_.Id -ErrorAction SilentlyContinue | Where-Object { $_.NameExchange -ne ""; }
+            $records = @(Resolve-DnsName -Type MX -Name $_.Id -ErrorAction SilentlyContinue | Where-Object { $_.NameExchange -ne ""; })
             if ($records) {
-                foreach ($record in $records) {
-                    Write-Host " - $($_.Id) MX found" -ForegroundColor Green
+                # One line per domain, not one per record. A domain routing to Exchange
+                # Online resolves to several MX hosts, and printing each one made a
+                # single-domain tenant look like nine domains in the transcript.
+                Write-Host " - $($_.Id) MX found ($($records.Count) record(s))" -ForegroundColor Green
 
+                foreach ($record in $records) {
                     if ([string]::IsNullOrEmpty($record.NameExchange) -eq $false) { 
                         $strings = $record.NameExchange -join '; '
                     } elseif ([string]::IsNullOrEmpty($record.IPAddress) -eq $false) {

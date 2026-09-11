@@ -146,7 +146,9 @@ if (Test-Path $summaryPath) {
     Write-Host "  Account    : $($summary.Account)"
     Write-Host "  Auth mode  : $($summary.AuthMode)"
     Write-Host "  Reports    : $($summary.ReportsSucceeded)"
-    Write-Host ("  Files      : {0} OK, {1} empty, {2} missing" -f $summary.FilesOk, $summary.FilesEmpty, $summary.FilesMissing)
+    $fileLine = "  Files      : {0} OK, {1} empty, {2} missing" -f $summary.FilesOk, $summary.FilesEmpty, $summary.FilesMissing
+    if ($summary.FilesNotApplicable -gt 0) { $fileLine += ", $($summary.FilesNotApplicable) not applicable" }
+    Write-Host $fileLine
     Write-Host ("  Status     : {0}" -f $summary.CompletenessStatus) `
         -ForegroundColor $(if ($summary.CompletenessStatus -eq 'Complete') { 'Green' } else { 'DarkYellow' })
 } else {

@@ -46,7 +46,18 @@ function threatHuntReportWrite {
             logWrite "ThreatHunting.Read.All was requested but not granted. These queries will fail until an administrator consents." -level Warning -indent 1
         }
 
+        # Cleared each run. threatHuntQueryRun sets it when the endpoint answers 401 or 403,
+        # which is a property of the tenant rather than of one query.
+        $script:threatHuntUnavailable = $null
+
         foreach ($definition in (threatHuntQueryGet)) {
+            if ($script:threatHuntUnavailable) {
+                logWrite "Skipped $($definition.description) - $($script:threatHuntUnavailable.reason)" -level Warning -indent 1
+                threatHuntQuerySkip -definition $definition `
+                                    -reason $script:threatHuntUnavailable.reason `
+                                    -notApplicable:$script:threatHuntUnavailable.notApplicable
+                continue
+            }
             threatHuntQueryRun -definition $definition | Out-Null
         }
 

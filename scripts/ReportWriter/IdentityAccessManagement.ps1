@@ -30,7 +30,8 @@ function iamReportWrite {
     Scopes: Directory.Read.All, DeviceManagementApps.Read.All, Device.Read.All,
             Application.Read.All, AuditLog.Read.All, RoleManagement.Read.Directory,
             PrivilegedEligibilitySchedule.Read.AzureADGroup,
-            PrivilegedAssignmentSchedule.Read.AzureADGroup
+            PrivilegedAssignmentSchedule.Read.AzureADGroup,
+            RoleManagementPolicy.Read.AzureADGroup
 
     AuditLog.Read.All needs Reports Reader on top of Global Reader. Without it the
     sign-in activity columns come back blank rather than the call failing, so it is a
@@ -51,6 +52,11 @@ function iamReportWrite {
     $script:pimMgmtPolicyRolesCache = @{}
     $script:pimMgmtPolicyGroupsCache = @{}
     $script:pimMgmtPolicyRules = @()
+
+    # One consent problem produces one identical 403 per role and per group. These flags
+    # keep the explanation to a single message per run instead of one per object.
+    $script:pimRolePolicyScopeWarned  = $false
+    $script:pimGroupPolicyScopeWarned = $false
 
     try {
         logWrite "STAGE 1 of 3: users, devices and service principals"

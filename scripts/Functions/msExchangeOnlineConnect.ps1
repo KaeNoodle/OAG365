@@ -15,7 +15,10 @@ function msExchangeOnlineConnect {
     LOGIC
     Checks ExchangeOnlineManagement is installed and imports it at global scope.
     Warns if the version is outside the tested 3.9.x line.
-    Connects to Exchange Online.
+    Connects to Exchange Online, falling back to a broker-free sign-in and then to device
+      code if the first attempt throws. Module 3.10.x can fail with a NullReferenceException
+      raised inside Get-ConnectionContext when the Web Account Manager broker returns
+      nothing, and that failure otherwise costs the entire DFO report.
     Re-imports the generated tmpEXO_* module with -Global so its cmdlets survive the
       return. This is the fix.
     Proves a known EXO cmdlet is actually callable before the export functions rely on
@@ -67,14 +70,44 @@ function msExchangeOnlineConnect {
             $result.moduleVersion = $exo.Version.ToString()
             logWrite "ExchangeOnlineManagement $($exo.Version)" -level Detail -indent 1
             if ($exo.Version -ge [version]'3.10.0') {
-                logWrite "Version $($exo.Version) is newer than the tested 3.9.x. If cmdlets fail, pin to 3.9.0." -level Warning -indent 1
+                logWrite "Version $($exo.Version) is newer than the tested 3.9.x line." -level Warning -indent 1
+                logWrite "3.10.x requires PowerShell 7.6 or later. If the connection below cannot be recovered, pin the module to 3.9.2 and run under PowerShell 7.4 or 7.5." -level Warning -indent 1
             }
         }
 
         logWrite "Connecting to Exchange Online..." -indent 1
         $params = @{ ShowProgress = $true; ShowBanner = $false; ErrorAction = 'Stop' }
         if ($userPrincipalName) { $params['UserPrincipalName'] = $userPrincipalName }
-        Connect-ExchangeOnline @params
+
+        # 3.10.x can fail with a NullReferenceException ("Object reference not set to an
+        # instance of an object") thrown out of Get-ConnectionContext. The credentials are
+        # not the problem - the Web Account Manager broker hands back nothing and the module
+        # dereferences it. Both fallbacks below sign in without that broker, so try them
+        # before reporting a failure and skipping the whole DFO report. Parameter support
+        # differs by module version, so each one is checked before it is used.
+        $supported = (Get-Command Connect-ExchangeOnline).Parameters.Keys
+        $attempts  = @(
+            @{ label = 'default sign-in';                   extra = @{} }
+            @{ label = 'sign-in with the broker disabled';  extra = @{ DisableWAM = $true }; needs = 'DisableWAM' }
+            @{ label = 'device code sign-in';               extra = @{ Device = $true };     needs = 'Device' }
+        )
+
+        $connectError = $null
+        foreach ($attempt in $attempts) {
+            if ($attempt.needs -and $attempt.needs -notin $supported) { continue }
+            if ($connectError) { logWrite "Retrying with $($attempt.label)." -level Warning -indent 1 }
+
+            $extra = $attempt.extra
+            try {
+                Connect-ExchangeOnline @params @extra
+                $connectError = $null
+                break
+            } catch {
+                $connectError = $_
+                logWrite "Exchange Online $($attempt.label) failed: $($_.Exception.Message)" -level Warning -indent 1
+            }
+        }
+        if ($connectError) { throw $connectError }
 
         # The scope fix. Without this the generated cmdlets vanish when this function
         # returns and every DFO export fails.

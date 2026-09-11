@@ -239,22 +239,100 @@ function threatHuntQueryRun {
 
     } catch {
         $message = $_.Exception.Message
+        $status  = $null
+        if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
+            $status = [int]$_.Exception.Response.StatusCode
+        } elseif ($message -match 'Unauthorized') {
+            $status = 401
+        } elseif ($message -match 'Forbidden') {
+            $status = 403
+        }
 
-        if ($message -match 'Forbidden|403|consent|Authorization_RequestDenied|insufficient privileges') {
+        # Two different failures arrive here and they mean opposite things for the audit.
+        #
+        # 403 or a consent error is a permission gap. The tenant has the capability, this
+        # account is not allowed to query it, and re-consenting fixes it.
+        #
+        # 401 with the scope already granted is not a permission gap. The hunting endpoint
+        # answers 401 when the tenant has no Defender XDR workload behind it - not licensed,
+        # or licensed but never onboarded, so there is no advanced hunting data to query.
+        # Nothing the operator consents to will change that, and recording it as a
+        # permission problem would put a false remediation in the working paper.
+        $granted = $script:run.scopes |
+                   Where-Object { $_.scope -eq 'ThreatHunting.Read.All' -and $_.granted }
+
+        $reason = if ($status -eq 403 -or $message -match 'Forbidden|consent|Authorization_RequestDenied|insufficient privileges') {
             logWrite "PERMISSION DENIED for $($definition.description)." -level Error -indent 1
             logWrite "ThreatHunting.Read.All requires tenant administrator consent. Until that is granted this report cannot be produced, and the gap should be recorded in the working paper." -level Error -indent 2
+            'Permission denied - ThreatHunting.Read.All not consented'
+        } elseif ($status -eq 401 -and $granted) {
+            logWrite "Advanced hunting is not available in this tenant." -level Warning -indent 1
+            logWrite "ThreatHunting.Read.All was granted, but the hunting endpoint returned 401. That is the response when no Microsoft Defender XDR workload is onboarded, so there is no hunting data to query." -level Warning -indent 2
+            logWrite "Record this as scope not applicable rather than a failed test." -level Warning -indent 2
+            'Defender XDR not onboarded in this tenant'
+        } elseif ($status -eq 401) {
+            logWrite "UNAUTHORISED for $($definition.description). ThreatHunting.Read.All was requested but is not in the granted scope set." -level Error -indent 1
+            'Unauthorised - ThreatHunting.Read.All not granted'
         } else {
             logWrite (exceptionFormat -message "Failed running hunting query '$($definition.description)'" -exception $_) -level Error -indent 1
+            "Query failed - $message"
         }
 
-        $script:run.expected += [PSCustomObject]@{
-            report = $script:run.currentReport
-            path = $script:exportTarget.($definition.targetKey)
-            fileName = (Split-Path $script:exportTarget.($definition.targetKey) -Leaf)
-            description = $definition.description
-            rowCount = 0; written = $false
-            timestamp = (Get-Date).ToString('o')
+        # A tenant with no Defender XDR behind the endpoint has no control to test, so the
+        # absent file is not a gap in the evidence. A permission failure is.
+        $notApplicable = ($status -eq 401 -and $granted)
+
+        # Both classifications apply to the whole endpoint, not to this one query, so tell
+        # the caller to stop rather than repeat the same failure for every remaining query.
+        if ($status -eq 401 -or $status -eq 403) {
+            $script:threatHuntUnavailable = [PSCustomObject]@{ reason = $reason; notApplicable = $notApplicable }
         }
+
+        threatHuntQuerySkip -definition $definition -reason $reason -notApplicable:$notApplicable
         return $false
+    }
+}
+
+
+function threatHuntQuerySkip {
+    <#--------------------------------------------------------------------------------
+
+    DESCRIPTION
+    Records a hunting query that produced no file, with the reason, so the completeness
+    check can distinguish "not attempted because the capability is absent" from "failed".
+
+    LOGIC
+    Appends an expected-but-unwritten entry to the run register.
+
+    PARAMETERS
+    -definition (required) one object from threatHuntQueryGet
+    -reason (required) why no file was produced
+    -notApplicable (optional) the capability does not exist in this tenant, so the absent
+      file is not a gap in the evidence and should not make the run read as incomplete
+
+    RUNNING CONTEXT
+    Called by  : threatHuntQueryRun, threatHuntReportWrite
+    Reads      : $script:exportTarget, $script:run
+
+    CMLETS/PERMISSIONS/SCOPES
+    None. Local state only.
+
+    --------------------------------------------------------------------------------#>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]$definition,
+        [Parameter(Mandatory = $true)][string]$reason,
+        [switch]$notApplicable
+    )
+
+    $script:run.expected += [PSCustomObject]@{
+        report = $script:run.currentReport
+        path = $script:exportTarget.($definition.targetKey)
+        fileName = (Split-Path $script:exportTarget.($definition.targetKey) -Leaf)
+        description = $definition.description
+        rowCount = 0; written = $false
+        reason = $reason; applicable = (-not $notApplicable)
+        timestamp = (Get-Date).ToString('o')
     }
 }

@@ -98,15 +98,20 @@ evidence.
 **Scopes:** `Directory.Read.All`, `DeviceManagementApps.Read.All`, `Device.Read.All`,
 `Application.Read.All`, `AuditLog.Read.All`, `RoleManagement.Read.Directory`,
 `PrivilegedEligibilitySchedule.Read.AzureADGroup`,
-`PrivilegedAssignmentSchedule.Read.AzureADGroup`
+`PrivilegedAssignmentSchedule.Read.AzureADGroup`, `RoleManagementPolicy.Read.AzureADGroup`
 
 `AuditLog.Read.All` requires Reports Reader in addition to Global Reader. Without it the sign-in
 activity columns are blank rather than the call failing, so this is a silent gap — check
 `completeness.csv` if user activity data is missing.
 
-The two `Privileged*.Read.AzureADGroup` scopes cover PIM for groups. PIM for directory roles is
-covered by `RoleManagement.Read.Directory`. These are separate and both are needed for complete
-PIM evidence.
+The two `Privileged*.Read.AzureADGroup` scopes cover PIM group memberships. PIM for directory
+roles is covered by `RoleManagement.Read.Directory`. These are separate and both are needed for
+complete PIM evidence.
+
+`RoleManagementPolicy.Read.AzureADGroup` is separate again, and covers the activation *rules* on
+a PIM-managed group: approval, MFA on activation, maximum duration, justification. Without it
+every group policy lookup returns 403 PermissionScopeNotGranted and the run records group
+memberships with no evidence of the controls protecting them.
 
 ### Org — Tenant configuration
 

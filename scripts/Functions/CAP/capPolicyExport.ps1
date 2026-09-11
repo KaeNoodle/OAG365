@@ -35,10 +35,21 @@ function capPolicyExport {
     Write-Progress -PercentComplete -1 -Activity "Fetching conditional access policies and related data from Graph API"
 
     # Get Conditional Access Policies
-    $conditionalAccessPolicies = Get-MgIdentityConditionalAccessPolicy -ExpandProperty "*" -All -ErrorAction Stop
+    $conditionalAccessPolicies = @(Get-MgIdentityConditionalAccessPolicy -ExpandProperty "*" -All -ErrorAction Stop)
     Write-Host "Found $($conditionalAccessPolicies.Count) conditional access policies"
 
-    Write-Host "Processing policy..."
+    # A tenant with no conditional access policies is a valid result, not a failed export,
+    # and it is a finding in its own right - sign-in is governed by nothing but the
+    # authentication method and security defaults. Say so plainly here, because the
+    # alternative is an empty CSV that reads like the export broke.
+    if ($conditionalAccessPolicies.Count -eq 0) {
+        Write-Host "No conditional access policies are configured in this tenant." -ForegroundColor DarkYellow
+        Write-Host " - The empty summary file is the evidence of that, not a failed export." -ForegroundColor DarkYellow
+        Write-Host " - Confirm whether security defaults are enabled, since that is the only" -ForegroundColor DarkYellow
+        Write-Host "   remaining sign-in control if no policies exist." -ForegroundColor DarkYellow
+    } else {
+        Write-Host "Processing policy..."
+    }
 
     $capSummary = @()
 

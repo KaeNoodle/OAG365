@@ -132,6 +132,13 @@ function iamPimPolicySet {
 
     CMLETS/PERMISSIONS/SCOPES
     Get-MgPolicyRoleManagementPolicyAssignment
+    Scope (roles)  : RoleManagement.Read.Directory
+    Scope (groups) : RoleManagementPolicy.Read.AzureADGroup
+
+    The group scope is not implied by the Privileged*Schedule.Read.AzureADGroup scopes.
+    Without it the group lookups return 403 PermissionScopeNotGranted while the group
+    membership calls keep working, so the run looks healthy and the activation rules are
+    quietly absent.
 
     --------------------------------------------------------------------------------#>
 
@@ -155,11 +162,19 @@ function iamPimPolicySet {
                 $assignments = Get-MgPolicyRoleManagementPolicyAssignment -Filter "scopeId eq '/' and scopeType eq 'DirectoryRole' and roleDefinitionId eq '$($roleId)'"  -ExpandProperty "policy" -All -ErrorAction Stop
                 Write-Host "     - Found $(($assignments | Measure-Object).Count) DirectoryRole policy assignments "
             } catch {
-                $exception = exceptionFormat -message "Failed retrieving PIM role management policies" -exception $_
-                if ($_.ErrorDetails -match 'ErrorCode: AadPremiumLicenseRequired') {
+                $detail = "$($_.ErrorDetails) $($_.Exception.Message)"
+                if ($detail -match 'PermissionScopeNotGranted') {
+                    if (-not $script:pimRolePolicyScopeWarned) {
+                        Write-Host "     - Role PIM policy rules unavailable: the required RoleManagementPolicy scope was not granted." -ForegroundColor DarkYellow
+                        Write-Host "       Role members are still exported. Activation rules are not." -ForegroundColor DarkYellow
+                        $script:pimRolePolicyScopeWarned = $true
+                    } else {
+                        Write-Host "     - Role PIM policy rules skipped, scope not granted " -ForegroundColor DarkYellow
+                    }
+                } elseif ($detail -match 'AadPremiumLicenseRequired') {
                     Write-Warning "Failed retrieving PIM role management policies. PIM may not be a licensed feature for this tenant. `n - Error: $($_.Exception.Message)"
                 } else {
-                    Write-Host $exception -ForegroundColor Red
+                    Write-Host (exceptionFormat -message "Failed retrieving PIM role management policies" -exception $_) -ForegroundColor Red
                 }
                 return $null
             }
@@ -195,11 +210,27 @@ function iamPimPolicySet {
                 $assignments = Get-MgPolicyRoleManagementPolicyAssignment -Filter "scopeId eq '$($groupId)' and scopeType eq 'Group'" -ExpandProperty "policy" -All -ErrorAction Stop
                 Write-Host "     - Found $(($assignments | Measure-Object).Count) group policy assignments "
             } catch {
-                $exception = exceptionFormat -message "Failed retrieving PIM group management policies" -exception $_
-                if ($_.ErrorDetails -match 'ErrorCode: AadPremiumLicenseRequired') {
+                # Three distinct causes, and the evidence needs to tell them apart. A missing
+                # scope is a consent problem the operator can fix and re-run; a licence problem
+                # means the control does not exist to be tested; anything else is a real fault.
+                # The scope case is reported once rather than once per group, because with four
+                # PIM groups the same 403 otherwise fills the transcript and buries real errors.
+                # ErrorDetails is not always populated by the Graph SDK, but the JSON error
+                # body is reliably present in the exception message, so match across both.
+                $detail = "$($_.ErrorDetails) $($_.Exception.Message)"
+                if ($detail -match 'PermissionScopeNotGranted|RoleManagementPolicy\.Read\.AzureADGroup') {
+                    if (-not $script:pimGroupPolicyScopeWarned) {
+                        Write-Host "     - Group PIM policy rules unavailable: RoleManagementPolicy.Read.AzureADGroup was not granted." -ForegroundColor DarkYellow
+                        Write-Host "       Group memberships are still exported. Activation rules (approval, MFA, duration) are not." -ForegroundColor DarkYellow
+                        Write-Host "       Re-consent with that scope and re-run to capture them." -ForegroundColor DarkYellow
+                        $script:pimGroupPolicyScopeWarned = $true
+                    } else {
+                        Write-Host "     - Group PIM policy rules skipped, scope not granted " -ForegroundColor DarkYellow
+                    }
+                } elseif ($detail -match 'AadPremiumLicenseRequired') {
                     Write-Warning "Failed retrieving PIM group management policies. PIM may not be a licensed feature for this tenant. `n - Error: $($_.Exception.Message)"
                 } else {
-                    Write-Host $exception -ForegroundColor Red
+                    Write-Host (exceptionFormat -message "Failed retrieving PIM group management policies" -exception $_) -ForegroundColor Red
                 }
                 return $null
             }
