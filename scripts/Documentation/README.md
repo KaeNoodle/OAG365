@@ -171,9 +171,16 @@ on a managed workstation until signing is arranged. See `Documentation\Verificat
 **"Module was not loaded because no valid module file was found"**
 Wrong folder, or Mark-of-the-Web. Run the `Unblock-File` command above.
 
+**The Microsoft sign-in prompt times out, or never appears**
+Web Account Manager sign-in opens its own window on a short timer, and on an embedded terminal
+that window frequently opens behind everything else — so the usual cause is never seeing it
+rather than anything being wrong with the account. Check the taskbar first. Otherwise run with
+`-deviceCode` to sign in with a code instead, which has no window to lose and allows more time.
+The module retries with a device code automatically if the interactive attempt fails.
+
 **"The required module ExchangeOnlineManagement is not installed"**
-The manifest pins 3.9.x, so installing the latest will not satisfy it:
-`Install-Module ExchangeOnlineManagement -RequiredVersion 3.9.0 -Force -AllowClobber`
+`RequiredModules` asks for 3.9.0 as a *minimum*, so any newer version satisfies it:
+`Install-Module ExchangeOnlineManagement -Force -AllowClobber`
 
 **DFO produces nothing / "term is not recognised"**
 This was the temporary cmdlet module scope bug, fixed in 4.0.0. Check the transcript for

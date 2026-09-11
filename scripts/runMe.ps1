@@ -50,6 +50,9 @@
     -appCertThumbprint (optional) certificate thumbprint, must be in the machine store
     -appSecret (optional) application secret, plain text
     -skipOnPremSync (optional) skip the ORG export that needs Global Administrator
+    -deviceCode (optional) sign in to Graph with a device code instead of the interactive
+      window. Use this when the sign-in prompt keeps timing out or opens behind the
+      terminal - it is also retried automatically if the interactive attempt fails
     -nonInteractive (optional) suppress confirmation pauses and the menu, for unattended runs
 
     RUNNING CONTEXT
@@ -84,6 +87,7 @@ Param(
     [Parameter(Mandatory = $true, ParameterSetName = 'AppSecret')][string]$appSecret,
 
     [switch]$skipOnPremSync,
+    [switch]$deviceCode,
     [switch]$nonInteractive
 )
 
@@ -166,7 +170,7 @@ function invokeReports {
         $scopes  = $scopeSource | ForEach-Object { $requirements[$_].scopes }  | Sort-Object -Unique
         $modules = $scopeSource | ForEach-Object { $requirements[$_].modules } | Sort-Object -Unique
 
-        $connectArgs = @{ scopes = $scopes; modules = $modules; noPause = $nonInteractive }
+        $connectArgs = @{ scopes = $scopes; modules = $modules; noPause = $nonInteractive; deviceCode = $deviceCode }
         switch ($PSCmdlet.ParameterSetName) {
             'AppCertThumbprint' { $connectArgs += @{ appClientId = $appClientId; appTenantId = $appTenantId; appCertThumbprint = $appCertThumbprint } }
             'AppSecret'         { $connectArgs += @{ appClientId = $appClientId; appTenantId = $appTenantId; appSecret = $appSecret } }
@@ -272,26 +276,72 @@ function showToolsMenu {
     Write-Host " 2) Verify-Export - check a completed run's evidence integrity"
     Write-Host " 0) Back"
 
-    switch (Read-Host "Choose an option") {
-        '1' { & (Join-Path $PSScriptRoot 'Tools\Debugger.ps1') -ModulePath $PSScriptRoot }
-        '2' {
-            $resultsRoot = Join-Path $output 'results'
-            $default = $null
-            if (Test-Path $resultsRoot) {
-                $default = Get-ChildItem -Path $resultsRoot -Directory -ErrorAction SilentlyContinue |
-                    Where-Object { Test-Path (Join-Path $_.FullName 'manifest.sha256') } |
-                    Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
-            }
-            $prompt = if ($default) { "Run folder to verify [$default]" } else { "Run folder to verify" }
-            $folder = Read-Host $prompt
-            if ([string]::IsNullOrWhiteSpace($folder)) { $folder = $default }
-            if ($folder) {
-                & (Join-Path $PSScriptRoot 'Tools\Verify-Export.ps1') -runFolder $folder
-            } else {
-                Write-Host "No completed run found to verify, and no folder given." -ForegroundColor Yellow
-            }
+    # Both tools throw on bad input, and $ErrorActionPreference = 'Stop' is inherited by
+    # anything called from here, so without this a mistyped path would escape the menu loop
+    # and end the whole session.
+    try {
+        switch (Read-Host "Choose an option") {
+            '1' { & (Join-Path $PSScriptRoot 'Tools\Debugger.ps1') -ModulePath $PSScriptRoot }
+            '2' { showVerifyMenu }
+        }
+    } catch {
+        Write-Host ""
+        Write-Host "Tool failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# ----------------------------------------------------------------------------------------
+# Lists the runs found under the output folder and lets the operator pick one by number.
+# Nobody should have to remember a run ID timestamp to verify their own export.
+# ----------------------------------------------------------------------------------------
+function showVerifyMenu {
+    $resultsRoot = Join-Path $output 'results'
+
+    $runs = @()
+    if (Test-Path $resultsRoot) {
+        $runs = @(Get-ChildItem -Path $resultsRoot -Directory -ErrorAction SilentlyContinue |
+                  Sort-Object LastWriteTime -Descending)
+    }
+
+    Write-Host ""
+    Write-Host "Verify which run?" -ForegroundColor Cyan
+    Write-Host "Looking in: $resultsRoot" -ForegroundColor Gray
+
+    if ($runs.Count -eq 0) {
+        Write-Host "No runs found here." -ForegroundColor Yellow
+    } else {
+        for ($i = 0; $i -lt $runs.Count; $i++) {
+            # A run with no manifest was never finalized - Verify-Export can't check it, so
+            # say that up front rather than letting the operator pick it and hit an error.
+            $verifiable = Test-Path (Join-Path $runs[$i].FullName 'manifest.sha256')
+            $when   = $runs[$i].LastWriteTime.ToString('yyyy-MM-dd HH:mm')
+            $status = if ($verifiable) { 'ready to verify' } else { 'no manifest - run did not finish' }
+            $colour = if ($verifiable) { 'Gray' } else { 'DarkYellow' }
+            Write-Host (" {0}) {1}   {2}   {3}" -f ($i + 1), $runs[$i].Name, $when, $status) -ForegroundColor $colour
         }
     }
+
+    Write-Host " P) Enter a path to a run folder somewhere else"
+    Write-Host " 0) Back"
+
+    $choice = (Read-Host "Choose an option").Trim()
+    if ([string]::IsNullOrWhiteSpace($choice) -or $choice -eq '0') { return }
+
+    $folder = $null
+    if ($choice -eq 'P' -or $choice -eq 'p') {
+        $folder = (Read-Host "Full path to the run folder").Trim('"', ' ')
+    } else {
+        $index = 0
+        if ([int]::TryParse($choice, [ref]$index) -and $index -ge 1 -and $index -le $runs.Count) {
+            $folder = $runs[$index - 1].FullName
+        } else {
+            Write-Host "Not a valid option." -ForegroundColor Red
+            return
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($folder)) { return }
+    & (Join-Path $PSScriptRoot 'Tools\Verify-Export.ps1') -runFolder $folder
 }
 
 function showHelpScreen {
@@ -304,8 +354,13 @@ function showHelpScreen {
     Write-Host "DFO  Defender for Office 365 anti-phishing, anti-spam, anti-malware, quarantine"
     Write-Host "TH   Defender advanced hunting - threat, health and software inventory reports"
     Write-Host ""
-    Write-Host "Key parameters: -output, -skipOnPremSync, -nonInteractive, or the app-auth" -ForegroundColor Gray
-    Write-Host "parameters (-appClientId/-appTenantId with -appCertThumbprint or -appSecret)." -ForegroundColor Gray
+    Write-Host "Key parameters: -output, -skipOnPremSync, -deviceCode, -nonInteractive, or" -ForegroundColor Gray
+    Write-Host "the app-auth parameters (-appClientId/-appTenantId with -appCertThumbprint" -ForegroundColor Gray
+    Write-Host "or -appSecret)." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "If the Microsoft sign-in prompt keeps timing out or never appears, it has" -ForegroundColor Gray
+    Write-Host "probably opened behind this window. Run with -deviceCode to sign in using a" -ForegroundColor Gray
+    Write-Host "code instead, which allows more time." -ForegroundColor Gray
     Write-Host ""
     Write-Host "Evidence for this session is written under: $(Join-Path $output 'results')" -ForegroundColor Gray
     Write-Host ""

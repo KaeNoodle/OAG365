@@ -36,6 +36,23 @@
   (`Build-Module.ps1`, `New-OagCatalog.ps1`), which stay out of the operator-facing menu.
   Help now points to the Debugger when the module won't run at all.
 
+### Sign-in and verification usability
+
+- Tools > Verify-Export now lists the runs it finds under the output folder and takes a
+  number, instead of asking the operator to type a full path including the run's timestamp.
+  Runs with no `manifest.sha256` are listed but marked as unfinished, since Verify-Export
+  cannot check those and would otherwise just error after being chosen. A path can still be
+  entered by hand for a run held somewhere else.
+- Added `-deviceCode`, which signs in to Graph with a device code instead of the interactive
+  window. Web Account Manager sign-in runs on a short timer and opens a window that, on an
+  embedded terminal, frequently appears behind everything else — so the common failure is the
+  operator never seeing the prompt rather than anything being wrong with the account. The
+  interactive path now also warns that the window may open behind, and retries once with a
+  device code by itself if the attempt fails.
+- Corrected the README's ExchangeOnlineManagement troubleshooting entry, which claimed
+  installing the latest version would not satisfy the manifest. `RequiredModules` states a
+  minimum, so anything newer does satisfy it.
+
 ### Cleanup
 
 - `Tools\Build-Module.ps1` worked against a source layout that no longer exists. It read

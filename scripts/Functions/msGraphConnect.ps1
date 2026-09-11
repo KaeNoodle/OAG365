@@ -17,6 +17,10 @@ function msGraphConnect {
     Checks the required Graph modules are installed, and stops if any are missing.
     Imports them at global scope so the cmdlets stay available for the whole run.
     Connects using whichever of the three authentication modes was supplied.
+    For interactive sign-in, falls back to device code if the Web Account Manager prompt
+      does not complete. That prompt is on a short timer and opens its own window, which
+      on an embedded terminal frequently appears behind everything else, so the common
+      failure is the operator never seeing it rather than the credentials being wrong.
     Compares requested scopes against granted scopes and warns on any shortfall, since
       a missing scope produces a silently incomplete export rather than an error.
     Returns a result object holding tenant, account and the scope comparison.
@@ -28,6 +32,7 @@ function msGraphConnect {
     -appTenantId (optional) tenant ID, for enterprise application authentication
     -appCertThumbprint (optional) certificate thumbprint, must be in the machine store
     -appSecret (optional) application secret, plain text
+    -deviceCode (optional) sign in with a device code instead of the interactive window
     -noPause (optional) skip the confirmation pause, for unattended runs
 
     RUNNING CONTEXT
@@ -51,6 +56,7 @@ function msGraphConnect {
         [Parameter(Mandatory = $true, ParameterSetName = 'AppSecret')][string]$appTenantId,
         [Parameter(Mandatory = $true, ParameterSetName = 'AppCertThumbprint')][string]$appCertThumbprint,
         [Parameter(Mandatory = $true, ParameterSetName = 'AppSecret')][string]$appSecret,
+        [switch]$deviceCode,
         [switch]$noPause
     )
 
@@ -94,8 +100,26 @@ function msGraphConnect {
                                     -ClientSecretCredential $creds -NoWelcome -ErrorAction Stop
                 }
                 'Prompt' {
-                    logWrite "Connecting interactively, requesting $($scopes.Count) scope(s)" -indent 1
-                    Connect-MgGraph -ContextScope Process -Scopes $scopes -NoWelcome -ErrorAction Stop
+                    if ($deviceCode) {
+                        logWrite "Connecting by device code, requesting $($scopes.Count) scope(s)" -indent 1
+                        Connect-MgGraph -ContextScope Process -Scopes $scopes -UseDeviceAuthentication -NoWelcome -ErrorAction Stop
+                    } else {
+                        logWrite "Connecting interactively, requesting $($scopes.Count) scope(s)" -indent 1
+                        logWrite "The sign-in window can open behind this one - check the taskbar if nothing appears." -level Detail -indent 1
+
+                        try {
+                            Connect-MgGraph -ContextScope Process -Scopes $scopes -NoWelcome -ErrorAction Stop
+                        } catch {
+                            # Web Account Manager sign-in runs on a short timer and its window
+                            # often opens behind the terminal, so a failure here is usually the
+                            # operator not reaching it in time rather than a real auth problem.
+                            # Device code has no window to lose and a far longer timer, so retry
+                            # that way once before giving up.
+                            logWrite "Interactive sign-in did not complete: $($_.Exception.Message)" -level Warning -indent 1
+                            logWrite "Retrying with device code, which allows more time to sign in." -level Warning -indent 1
+                            Connect-MgGraph -ContextScope Process -Scopes $scopes -UseDeviceAuthentication -NoWelcome -ErrorAction Stop
+                        }
+                    }
                 }
             }
         }
