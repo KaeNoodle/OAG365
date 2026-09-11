@@ -55,10 +55,12 @@ release.
 
 ### Unblock the files
 
-If copied from a network location, Mark-of-the-Web silently blocks module import:
+If copied from a network location, Mark-of-the-Web silently blocks module import. `runMe.ps1`
+unblocks the module folder itself on startup, but it can only do that once PowerShell agrees to
+run it — so if `runMe.ps1` is itself blocked, clear the folder by hand first:
 
 ```powershell
-Get-ChildItem -Path .\OAG-M365-AuditingScript -Recurse | Unblock-File
+Get-ChildItem -Path .\scripts -Recurse | Unblock-File
 ```
 
 ---

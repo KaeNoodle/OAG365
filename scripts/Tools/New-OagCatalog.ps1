@@ -13,7 +13,7 @@ and creating a strong incentive to skip re-signing.
 
 New-FileCatalog instead records a SHA-256 hash of every file into a single .cat, and only that
 one file is signed. Test-FileCatalog then verifies the whole module in one call, which is what
-Test-OagM365Integrity does at the start of every run.
+codeVerify does at the start of every run.
 
 The trade-off worth understanding: with per-file Authenticode, PowerShell itself refuses to run
 an altered script under AllSigned execution policy. With a catalog, PowerShell will still run an

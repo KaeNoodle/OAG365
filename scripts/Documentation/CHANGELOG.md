@@ -36,6 +36,27 @@
   (`Build-Module.ps1`, `New-OagCatalog.ps1`), which stay out of the operator-facing menu.
   Help now points to the Debugger when the module won't run at all.
 
+### Cleanup
+
+- `Tools\Build-Module.ps1` worked against a source layout that no longer exists. It read
+  `Private\` and `Public\`, which threw immediately under `$ErrorActionPreference = 'Stop'`,
+  so the build was dead. It now reads `Functions\` and `ReportWriter\`, takes its
+  `Export-ModuleMember` list from the manifest's `FunctionsToExport` rather than from
+  filenames (a filename is not a function name here — `ConditionalAccessPolicy.ps1` defines
+  `capReportWrite`), and validates by counting function definitions rather than files, which
+  previously guaranteed a count mismatch.
+- `Tools\Debugger.ps1` defaulted `-ModulePath` to `$PSScriptRoot`, which resolves to `Tools\`
+  rather than the module root, so a standalone run checked the wrong folder. Now defaults to
+  the parent.
+- Removed two committed editor backup files (`OAG-ModuleManifest.psd1~`,
+  `graphObjectResolve.ps1~`) that shadowed real files with stale copies, and added a
+  `.gitignore` covering `results/`, `dist/` and `*~`.
+- Corrected stale references throughout: `Docs\` → `Documentation\`, `Test-OagM365Integrity`
+  → `codeVerify`, `Get-OagM365IamPimRole` → `iamPimRoleGet`, and the README's unblock command,
+  which still named the old module folder.
+- `orgEmailExport` built its DMARC result with `+=` against an uninitialised variable where
+  the surrounding MX and SPF lines used `=`.
+
 ### Diagnostics
 
 - `Tools\Test-LanguageMode.ps1` renamed to `Tools\Debugger.ps1`. All existing Constrained

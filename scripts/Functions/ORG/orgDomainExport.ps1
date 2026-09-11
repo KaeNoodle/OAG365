@@ -53,7 +53,7 @@ function orgEmailExport {
 
         # Get DMARC DNS Record for each M365 domain
         Write-Host "`nRetrieving DMARC records for M365 domains"
-        $getDmarcDnsRecord += orgDomainDmarcGet -getMgDomains $domains
+        $getDmarcDnsRecord = orgDomainDmarcGet -getMgDomains $domains
         $getDmarcDnsRecordCount = $getDmarcDnsRecord.count
         Write-Verbose " - DMARC records for $getDmarcDnsRecordCount M365 domains"
 

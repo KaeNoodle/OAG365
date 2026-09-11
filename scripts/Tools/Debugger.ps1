@@ -31,7 +31,9 @@ Run on the machine and in the shell where the export fails.
 #>
 [CmdletBinding()]
 param (
-    [string]$ModulePath = $PSScriptRoot
+    # This script lives in Tools\, so the module root is its parent. Defaulting to $PSScriptRoot
+    # would point the module checks at Tools\ itself and report everything as missing.
+    [string]$ModulePath = (Split-Path -Path $PSScriptRoot -Parent)
 )
 
 Write-Host ""
@@ -405,7 +407,7 @@ if ($mode -ne 'FullLanguage') {
     Write-Host "  the same dependencies, so the restriction reaches past our own code." -ForegroundColor DarkYellow
     Write-Host ""
     Write-Host "  Take the cause identified above to whoever administers application" -ForegroundColor DarkYellow
-    Write-Host "  control and request an approved execution path. See Docs\README.md." -ForegroundColor DarkYellow
+    Write-Host "  control and request an approved execution path. See Documentation\README.md." -ForegroundColor DarkYellow
 } elseif ($executionPolicyBlocking) {
     Write-Host "  Session is in FullLanguage, but the execution policy above will still" -ForegroundColor Red
     Write-Host "  refuse to run this module. See the fix under EXECUTION POLICY." -ForegroundColor Red

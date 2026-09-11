@@ -32,7 +32,7 @@ Authenticode signature on each of roughly 60 `.ps1` files.
 
 `New-FileCatalog` records a SHA-256 hash of every file listed in the manifest's `FileList` into
 the catalog. Only the catalog is signed. `Test-FileCatalog` then verifies the whole module in one
-call, which is what `Test-OagM365Integrity` does at the start of every run.
+call, which is what `codeVerify` does at the start of every run.
 
 The reason is practical. Per-file Authenticode would mean 60 signing operations for every change,
 however small. That cost creates a real incentive to skip re-signing, and an unsigned module in
@@ -76,7 +76,7 @@ Get-AuthenticodeSignature -FilePath .\OAG-FileCatalog.cat | Format-List
 
 `Test-FileCatalog` returns `Valid` or `ValidationFailed`. When it fails, the `CatalogItems` and
 `PathItems` dictionaries can be compared to identify which specific files differ —
-`Test-OagM365Integrity` does this automatically and names them in the run log, because "catalog
+`codeVerify` does this automatically and names them in the run log, because "catalog
 invalid" alone is not actionable.
 
 ### What the run records
